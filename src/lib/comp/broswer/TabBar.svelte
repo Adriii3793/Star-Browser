@@ -30,6 +30,7 @@
     .tabbar {
         display: flex; align-items: center; gap: 4px;
         padding: 9px 12px; background: var(--bg-chrome);
+        flex:1;
     }
     .new {
         width: 30px; height: 30px; border: none; background: transparent;

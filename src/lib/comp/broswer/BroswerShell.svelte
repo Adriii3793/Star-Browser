@@ -1,6 +1,7 @@
 <script lang="ts">
     import TabBar from './TabBar.svelte';
     import AddressBar from './AddressBar.svelte';
+    import WindowControls from './WindowControls.svelte';
 
     interface TabData {id: string; title: string; url: string;}
 
@@ -41,13 +42,16 @@
 </script>
 
 <div class="shell">
-    <TabBar 
-        {tabs}
-        {activeId}
-        onselect={selectTab}
-        onclose={closeTab}
-        onnew={newTab}
-    />
+    <div class="topbar">
+        <TabBar 
+            {tabs}
+            {activeId}
+            onselect={selectTab}
+            onclose={closeTab}
+            onnew={newTab}
+        />
+        <WindowControls />
+    </div>
     <AddressBar 
         url ={activeTab?.url ?? ''}
         onnavigate={navigate}
@@ -70,7 +74,7 @@
             </div>
             {:else}
             <div class="home">
-                <h1> </h1>
+                <h1>Search</h1>
                 <p class="hint"> </p>
             </div>
             {/if}
@@ -97,6 +101,12 @@
     .shell {
         display: flex; flex-direction: column;
         height: 100vh; background: var(--bg-chrome);
+        width: 100%;
+    }
+    .topbar {
+        display:flex;
+        align-items: center;
+        justify-content: space-between;
     }
     .body { flex: 1; display: flex; overflow: hidden;}
     .content {

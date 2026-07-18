@@ -17,9 +17,6 @@
   import '../app.css'
 </script>
 
-<WindowControls>
-
-</WindowControls>
 
 {#if setupDone === null}
   <p style="padding: 1rem;">Loading</p>
