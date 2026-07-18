@@ -1,10 +1,35 @@
+# macOS / general system files
 .DS_Store
+Thumbs.db
+
+# Editor / IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node / SvelteKit / Vite
 node_modules
 /build
+/dist
 /.svelte-kit
 /package
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Environment files
 .env
 .env.*
 !.env.example
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
+
+# Rust / Tauri build output
+debug/
+target/
+release/
+**/*.rs.bk
+*.pdb
+**/mutants.out*/
+
+# Optional: JetBrains IDE folder for a more nuclear ignore (kept commented out)
+# .idea/
+
