@@ -23,12 +23,18 @@
 		onreorder?: (from: number, to: number) => void;
 	} = $props();
 
-	let strip: HTMLElement;
+	let strip = $state<HTMLElement>();
 	let dragIndex = $state<number | null>(null);
 	let pendingIndex = 0;
 	let startX = 0;
 
 	const THRESHOLD = 4;
+
+	$effect(() => {
+		const index = tabs.findIndex((t) => t.id === activeId);
+		if (dragIndex !== null) return;
+		strip?.children[index]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+	});
 
 	function grab(index: number, e: PointerEvent) {
 		if (e.button !== 0) return;
@@ -40,6 +46,8 @@
 	}
 
 	function drag(e: PointerEvent) {
+		if (!strip) return;
+
 		if (dragIndex === null) {
 			if (Math.abs(e.clientX - startX) < THRESHOLD) return;
 			dragIndex = pendingIndex;
@@ -59,10 +67,26 @@
 		window.removeEventListener('pointermove', drag);
 		dragIndex = null;
 	}
+
+	function move(e: KeyboardEvent) {
+		const last = tabs.length - 1;
+		const current = tabs.findIndex((t) => t.id === activeId);
+		let next: number;
+
+		if (e.key === 'ArrowRight') next = current === last ? 0 : current + 1;
+		else if (e.key === 'ArrowLeft') next = current === 0 ? last : current -1;
+		else if (e.key === 'Home') next = 0;
+		else if (e.key === 'End') next = last;
+		else return;
+
+		e.preventDefault();
+		onselect(tabs[next].id);
+		(strip?.children[next] as HTMLElement | undefined)?.focus();
+	}
 </script>
 
 <div class="tabbar">
-	<div class="strip" role="tablist" aria-label="Schede" bind:this={strip}>
+	<div class="strip" role="tablist" aria-label="Tabs" bind:this={strip}>
 		{#each tabs as tab, i (tab.id)}
 			<Tab
 				title={tab.title}
@@ -76,7 +100,7 @@
 		{/each}
 	</div>
 
-	<button class="new" type="button" onclick={onnew} aria-label="Nuova scheda">
+	<button class="new" type="button" onclick={onnew} aria-label="New Tab">
 		<svg viewBox="0 0 24 24" aria-hidden="true">
 			<path d="M12 5v14M5 12h14" />
 		</svg>
@@ -87,22 +111,17 @@
 	.tabbar {
 		display: flex;
 		align-items: flex-end;
+		gap: 8px;
 		min-width: 0;
-		height: 38px;
-		padding: 0 4px;
-		background: transparent;
+		height: 100%;
+		padding: 0 8px;
 		box-sizing: border-box;
 	}
 
 	.strip {
 		display: flex;
 		align-items: flex-end;
-		gap: 5px;
-		min-width: 0;
-		overflow-x: auto;
-		overflow-y: hidden;
-		scrollbar-width: none;
-		-ms-overflow-style: none;
+		
 	}
 	.strip::-webkit-scrollbar {
 		display: none;

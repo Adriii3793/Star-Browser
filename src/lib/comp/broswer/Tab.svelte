@@ -18,40 +18,62 @@
 		onclose: () => void;
 		onpointerdown?: (e: PointerEvent) => void;
 	} = $props();
+
+	function press(e: PointerEvent) {
+		if (e.target instanceof Element && e.target.closest('[data-close]')) return;
+		onpointerdown?.(e);
+	}
+
+	function keydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onselect();
+		} else if (e.key === 'Delete' || e.key === 'Backspace') {
+			e.preventDefault();
+			onclose();
+		}
+	}
+
+	function close(e:MouseEvent) {
+		e.stopPropagation();
+		onclose();
+	}
 </script>
 
 <div
 	class="tab"
 	class:active
 	class:dragging
-	onpointerdown={(e) => onpointerdown?.(e)}
 	role="tab"
 	aria-selected={active}
-	tabindex="-1"
+	tabindex={active ? 0 : -1}
+	{title}
+	onclick={onselect}
+	onauxclick={(e) => e.button === 1 && onclose()}
+	onpointerdown={press}
+	onkeydown={keydown}
 >
-	<button class="surface" type="button" onclick={onselect} title={title}>
-		<span class="icon">
-			{#if favicon}
-				<img src={favicon} alt="" />
-			{:else}
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<circle cx="12" cy="12" r="9" />
-					<path d="M3.6 9h16.8M3.6 15h16.8M11.5 3a17 17 0 0 0 0 18M12.5 3a17 17 0 0 1 0 18" />
-				</svg>
-			{/if}
-		</span>
-		<span class="label">{title}</span>
-	</button>
+	<span class="icon">
+		{#if favicon}
+			<img src={favicon} alt="" />
+		{:else}
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<circle cx="12" cy="12" r="9" />
+				<path d="M3.6 9h16.8M3.6 15h16.8M11.5 3a17 17 0 0 0 0 18M12.5 3a17 17 0 0 1 0 18" />
+			</svg>
+		{/if}
+	</span>
+
+	<span class="label">{title}</span>
 
 	{#if closable}
 		<button
 			class="close"
+			data-close
 			type="button"
-			aria-label="Chiudi scheda"
-			onclick={(e) => {
-				e.stopPropagation();
-				onclose();
-			}}
+			tabindex="-1"
+			aria-label="Close Tab"
+			onclick={close}
 		>
 			<svg viewBox="0 0 24 24" aria-hidden="true">
 				<path d="M18 6 6 18M6 6l12 12" />
@@ -62,88 +84,101 @@
 
 <style>
 	.tab {
+		position: relative;
 		display: flex;
 		align-items: center;
-		flex: 0 0 auto;
+		gap: 8px;
+		flex: 0 1 auto;
+		width: 144px;
+		min-width: 112px;
 		height: 32px;
-		max-width: 180px;
-		min-width: 0;
-		padding: 0 8px 0 14px;
-		border-radius: 7px 7px 0 0;
-		background: #ececec;
-		color: #444;
+		padding: o 8px;
+		border-radius: 8px;
+		background: transparent;
+		color: var(--text, #444);
 		font-size: 13px;
 		font-weight: 500;
 		font-family:
-			Inter,
+			Inter
 			-apple-system,
-			BlinkMacSystemFont,
+			BlinckMacSystemFont,
 			'SF Pro Text',
 			'Segoe UI',
 			sans-serif;
+		box-sizing: border-box;
 		user-select: none;
 		touch-action: none;
-		transition:
-			background-color 0.18s ease,
-			box-shadow 0.18s ease;
+		cursor: default;
+		transition: background-color 150ms ease-in-out;
+	}
+
+	.tab + .tab:before {
+		content: '';
+		position: absolute;
+		left: 0;
+		top: 8px;
+		bottom: 8px;
+		width: 1px;
+		background: rgba(0, 0, 0, 0.08);
+		transition: opacity 150ms ease-in-out
+	}
+
+	.tab:hover::before,
+	.tab.active::before,
+	.tab:hover + .tab::before,
+	.tab.active + .tab::before {
+		opacity: 0;
+	}
+
+	.tab:not(.active):hover {
+		background: rgba(0, 0, 0, 0.04);
+	}
+
+	.tab.active {
+		background: var(--tab-activce, #ffffff);
 	}
 
 	.tab.dragging {
 		opacity: 0.7;
-		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 	}
 
-	.tab:not(.active):hover {
-		background: #e3e3e3;
-	}
-
-	.tab.active {
-		background: #ffffff;
-		box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.06);
-	}
-
-	.surface {
-		display: flex;
-		align-items: center;
-		gap: 7px;
-		flex: 1;
-		min-width: 0;
-		padding: 0;
-		border: 0;
-		background: transparent;
-		font: inherit;
-		color: inherit;
-		cursor: default;
+	.tab:focus-visible {
+		outline: 2px solid var(--accent, #1a73e8);
+		outline-offset: -2px;
 	}
 
 	.icon {
 		display: flex;
 		flex: 0 0 auto;
-		width: 14px;
-		height: 14px;
+		width: 16px; 
+		height: 16px;
 	}
 	.icon img {
 		width: 100%;
 		height: 100%;
-		border-radius: 3px;
+		border-radius: 4px;
 		object-fit: contain;
 	}
 	.icon svg {
 		width: 100%;
 		height: 100%;
 		fill: none;
-		stroke: #8a8a8a;
-		stroke-width: 2;
+		stroke: currentColor;
+		stroke-width: 1.75;
 		stroke-linecap: round;
+		opacity: 0.55;
 	}
 	.tab.active .icon svg {
-		stroke: #6e6e6e;
+		opacity: 0,75;
 	}
 
 	.label {
+		flex: 1;
+		min-width: 0;
 		overflow: hidden;
 		white-space: nowrap;
 		text-overflow: ellipsis;
+		text-align: left;
 	}
 
 	.close {
@@ -151,26 +186,25 @@
 		align-items: center;
 		justify-content: center;
 		flex: 0 0 auto;
-		width: 16px;
-		height: 16px;
-		margin-left: 6px;
+		width: 24px;
+		height: 24px;
 		padding: 0;
 		border: 0;
-		border-radius: 4px;
+		border-radius: 8px;
 		background: transparent;
-		color: #7a7a7a;
+		color: inherit;
 		cursor: default;
 		opacity: 0;
 		transition:
-			opacity 0.18s ease,
-			background-color 0.18s ease;
+			opacity 150ms ease-in-out,
+			background-color 150ms ease-in-out;
 	}
-	.close svg {
-		width: 11px;
-		height: 11px;
+	.color svg {
+		width: 12px;
+		height: 12px;
 		fill: none;
 		stroke: currentColor;
-		stroke-width: 2.2;
+		stroke-width: 2;
 		stroke-linecap: round;
 	}
 	.tab:hover .close,
@@ -179,11 +213,11 @@
 	}
 	.close:hover {
 		background: rgba(0, 0, 0, 0.08);
-		color: #333;
 	}
 
-	@media (prefers-reduced-motion: reduce) {
+	@media (preferes-reduced-motion: reduce) {
 		.tab,
+		.tab + .tab::before,
 		.close {
 			transition: none;
 		}
