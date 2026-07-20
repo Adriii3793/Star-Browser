@@ -26,6 +26,10 @@
         if (activeId === id) activeId = tabs[Math.max(0, i - 1)].id;
     }
     function selectTab(id: string) { activeId = id;}
+    function moveTab(from: number, to: number) {
+        const [tab] = tabs.splice(from, 1);
+        tabs.splice(to, 0, tab);
+    }
     function navigate(input: string) {
         const tab = tabs.find((t) => t.id === activeId);
         if (!tab || !input.trim()) return;
@@ -49,7 +53,9 @@
             onselect={selectTab}
             onclose={closeTab}
             onnew={newTab}
+            onreorder={moveTab}
         />
+        <div class="drag-region" data-tauri-drag-region></div>
         <WindowControls />
     </div>
     <AddressBar 
@@ -103,11 +109,23 @@
         height: 100vh; background: var(--bg-chrome);
         width: 100%;
     }
+
     .topbar {
-        display:flex;
-        align-items: center;
-        justify-content: space-between;
+        display: flex;
+        align-items: stretch;
+        min-width: 0;
+        height: 38px;
+        background: transparent;
+        box-sizing: border-box;
     }
+
+    .drag-region {
+        flex: 1 1 auto;
+        min-width: 72px;
+        align-self: stretch;
+        -webkit-app-region: drag;
+    }
+
     .body { flex: 1; display: flex; overflow: hidden;}
     .content {
        flex: 1; background: var(--bg-page);

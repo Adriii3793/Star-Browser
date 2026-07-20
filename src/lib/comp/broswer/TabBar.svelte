@@ -1,41 +1,144 @@
 <script lang="ts">
-    import Tab from './Tab.svelte';
-    interface TabData { 
-        id: string; title: string;
-    }
-    let { tabs, activeId, onselect, onclose, onnew}:
-    {tabs: TabData[];activeId: string;
-        onselect: (id: string) => void; onclose: (id: string) => void; onnew: () => void } = $props();
+	import Tab from './Tab.svelte';
+
+	interface TabData {
+		id: string;
+		title: string;
+		favicon?: string;
+	}
+
+	let {
+		tabs,
+		activeId,
+		onselect,
+		onclose,
+		onnew,
+		onreorder
+	}: {
+		tabs: TabData[];
+		activeId: string;
+		onselect: (id: string) => void;
+		onclose: (id: string) => void;
+		onnew: () => void;
+		onreorder?: (from: number, to: number) => void;
+	} = $props();
+
+	let strip: HTMLElement;
+	let dragIndex = $state<number | null>(null);
+	let pendingIndex = 0;
+	let startX = 0;
+
+	const THRESHOLD = 4;
+
+	function grab(index: number, e: PointerEvent) {
+		if (e.button !== 0) return;
+		pendingIndex = index;
+		startX = e.clientX;
+		window.addEventListener('pointermove', drag);
+		window.addEventListener('pointerup', release, { once: true });
+		window.addEventListener('pointercancel', release, { once: true });
+	}
+
+	function drag(e: PointerEvent) {
+		if (dragIndex === null) {
+			if (Math.abs(e.clientX - startX) < THRESHOLD) return;
+			dragIndex = pendingIndex;
+		}
+
+		const target = [...strip.children].findIndex((el) => {
+			const box = el.getBoundingClientRect();
+			return e.clientX >= box.left && e.clientX <= box.right;
+		});
+
+		if (target === -1 || target === dragIndex) return;
+		onreorder?.(dragIndex, target);
+		dragIndex = target;
+	}
+
+	function release() {
+		window.removeEventListener('pointermove', drag);
+		dragIndex = null;
+	}
 </script>
 
 <div class="tabbar">
-    {#each tabs as tab (tab.id)}
-    <Tab 
-        title={tab.title}
-        active={tab.id === activeId}
-        onselect={() => onselect(tab.id)}
-        onclose={() => onclose(tab.id)}
-    />
-    {/each}
-    <button class="new" onclick={onnew} aria-label="Nuovo Tab">
-        <i class="ti ti-plus"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 5v14" />
-    <path d="M5 12h14" />
-</svg></i>
+	<div class="strip" role="tablist" aria-label="Schede" bind:this={strip}>
+		{#each tabs as tab, i (tab.id)}
+			<Tab
+				title={tab.title}
+				favicon={tab.favicon ?? ''}
+				active={tab.id === activeId}
+				dragging={dragIndex === i}
+				onselect={() => onselect(tab.id)}
+				onclose={() => onclose(tab.id)}
+				onpointerdown={(e) => grab(i, e)}
+			/>
+		{/each}
+	</div>
 
-    </button>
-
+	<button class="new" type="button" onclick={onnew} aria-label="Nuova scheda">
+		<svg viewBox="0 0 24 24" aria-hidden="true">
+			<path d="M12 5v14M5 12h14" />
+		</svg>
+	</button>
 </div>
+
 <style>
-    .tabbar {
-        display: flex; align-items: center; gap: 4px;
-        padding: 9px 12px; background: var(--bg-chrome);
-        flex:1;
-    }
-    .new {
-        width: 30px; height: 30px; border: none; background: transparent;
-        border-radius: 8px; color: var(--text-soft); cursor: pointer;
-        display: flex; align-items: center; justify-content: center; font-size: 17px;
-    }
-    .new:hover { background: var(--tab-hover); }
+	.tabbar {
+		display: flex;
+		align-items: flex-end;
+		min-width: 0;
+		height: 38px;
+		padding: 0 4px;
+		background: transparent;
+		box-sizing: border-box;
+	}
+
+	.strip {
+		display: flex;
+		align-items: flex-end;
+		gap: 5px;
+		min-width: 0;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+	}
+	.strip::-webkit-scrollbar {
+		display: none;
+	}
+
+	.new {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 auto;
+		width: 26px;
+		height: 26px;
+		margin: 0 0 3px 5px;
+		padding: 0;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: #666;
+		cursor: default;
+		transition: background-color 0.18s ease;
+	}
+	.new svg {
+		width: 14px;
+		height: 14px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+	}
+	.new:hover {
+		background: #e3e3e3;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.new {
+			transition: none;
+		}
+	}
 </style>
