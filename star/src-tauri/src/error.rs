@@ -17,12 +17,21 @@ pub enum AppError {
     #[error("tauri error: {0}")]
     Tauri(#[from] tauri::Error),
 
-    #[error("url non valido")]
+    #[error("url not valid")]
     InvalidUrl,
 
-    #[error("finestra principale non trovata")]
+    #[error("ftab not found")]
     WindowNotFound,
+
+    #[error("API key not configured ")]
+    MissingApiKey,
+    #[error("daily AI request limit reached")]
+    RateLimited,
+
+    #[error("error in the AI request")]
+    AiRequest,
 }
+
 impl Serialize for AppError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_string())

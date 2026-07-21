@@ -36,6 +36,8 @@ pub fn run() {
         commands::webview::set_tab_bounds,
         commands::webview::show_tab_webview,
         commands::webview::close_tab_webview,
+        commands::ai::usage_status,
+        commands::ai::ai_chat,
     ])
     .run(tauri::generate_context!())
     .expect("Errore Avvio")
