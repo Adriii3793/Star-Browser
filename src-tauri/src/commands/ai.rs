@@ -7,10 +7,10 @@ use crate::state::AppState;
 
 const DAILY_LIMIT: i64 = 50;
 const WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
-const MODEL: &str = "meta-llama/llama-3.2-11b-vision-instruct:free";
+const MODEL: &str = "deepseek/deepseek-v4-pro";
 
-fn api_key() -> Result<&'static str, AppError> {
-    option_env!("OPENROUTER_API_KEY").ok_or(AppError::MissingApiKey)
+fn api_key() -> Result<String, AppError> {
+    std::env::var("OPENROUTER_API_KEY").map_err(|_| AppError::MissingApiKey)
 }
 
 fn now_millis() -> i64 {

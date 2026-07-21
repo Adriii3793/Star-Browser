@@ -12,6 +12,7 @@ pub enum AppError {
     Io(#[from] std::io::Error),
 
     #[error("could not resolve the application data directory")]
+    #[allow(dead_code)]
     AppDir,
 
     #[error("tauri error: {0}")]

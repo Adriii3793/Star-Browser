@@ -92,16 +92,16 @@
 		width: 144px;
 		min-width: 112px;
 		height: 32px;
-		padding: o 8px;
+		padding: 0 8px;
 		border-radius: 8px;
 		background: transparent;
 		color: var(--text, #444);
 		font-size: 13px;
 		font-weight: 500;
 		font-family:
-			Inter
+			Inter,
 			-apple-system,
-			BlinckMacSystemFont,
+			BlinkMacSystemFont,
 			'SF Pro Text',
 			'Segoe UI',
 			sans-serif;
@@ -112,30 +112,22 @@
 		transition: background-color 150ms ease-in-out;
 	}
 
-	.tab + .tab:before {
-		content: '';
-		position: absolute;
-		left: 0;
-		top: 8px;
-		bottom: 8px;
-		width: 1px;
-		background: rgba(0, 0, 0, 0.08);
-		transition: opacity 150ms ease-in-out
-	}
+    .tab:not(:last-child) {
+        border-right: 1px solid rgba(0, 0, 0, 0.08);
+    }
 
-	.tab:hover::before,
-	.tab.active::before,
-	.tab:hover + .tab::before,
-	.tab.active + .tab::before {
-		opacity: 0;
-	}
+    .tab:hover,
+    .tab.active {
+        border-right-color:transparent;
+    }
 
+    
 	.tab:not(.active):hover {
 		background: rgba(0, 0, 0, 0.04);
 	}
 
 	.tab.active {
-		background: var(--tab-activce, #ffffff);
+		background: var(--tab-active, #ffffff);
 	}
 
 	.tab.dragging {
@@ -169,7 +161,7 @@
 		opacity: 0.55;
 	}
 	.tab.active .icon svg {
-		opacity: 0,75;
+		opacity: 0.75;
 	}
 
 	.label {
@@ -199,7 +191,7 @@
 			opacity 150ms ease-in-out,
 			background-color 150ms ease-in-out;
 	}
-	.color svg {
+	.close svg {
 		width: 12px;
 		height: 12px;
 		fill: none;
@@ -215,9 +207,8 @@
 		background: rgba(0, 0, 0, 0.08);
 	}
 
-	@media (preferes-reduced-motion: reduce) {
+	@media (prefers-reduced-motion: reduce) {
 		.tab,
-		.tab + .tab::before,
 		.close {
 			transition: none;
 		}
