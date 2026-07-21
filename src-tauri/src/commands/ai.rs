@@ -7,7 +7,7 @@ use crate::state::AppState;
 
 const DAILY_LIMIT: i64 = 50;
 const WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
-const MODEL: &str = "deepseek/deepseek-v4-pro";
+const MODEL: &str = "google/gemma-4-31b-it:free";
 
 fn api_key() -> Result<String, AppError> {
     std::env::var("OPENROUTER_API_KEY").map_err(|_| AppError::MissingApiKey)
