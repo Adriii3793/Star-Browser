@@ -1,11 +1,18 @@
 use tauri::webview::WebviewBuilder;
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewUrl};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewUrl};
 
 use crate::error::AppError;
 use crate::state::AppState;
 
 fn label_for(tab_id: &str) -> String {
     format!("tab-{tab_id}")
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TabUrlChanged {
+    tab_id: String,
+    url: String,
 }
 
 #[tauri::command]
@@ -33,11 +40,24 @@ pub async fn open_tab_webview(
         }
     }
 
+    let nav_app = app.clone();
+    let nav_tab_id = tab_id.clone();
+    let builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
+        .on_navigation(move |url| {
+            let _ = nav_app.emit(
+                "tab-url-changed",
+                TabUrlChanged {
+                    tab_id: nav_tab_id.clone(),
+                    url: url.to_string(),
+                },
+            );
+            true
+        });
+
     let main = app
     .get_window("main")
     .ok_or(AppError::WindowNotFound)?;
 
-    let builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed));
     let webview = main.add_child(
         builder,
         LogicalPosition::new(x, y),

@@ -10,8 +10,10 @@
         navigateTabWebview,
         setTabBounds,
         showTabWebview,
-        closeTabWebview
+        closeTabWebview,
+        onTabUrlChanged
     } from '$lib/services/webview';
+    import { getCurrentWindow } from '@tauri-apps/api/window';
     interface TabData {id: string; title: string; url: string;}
 
     let tabs = $state<TabData[]>([
@@ -29,8 +31,16 @@
         return contentEl?.getBoundingClientRect();
     }
 
+    function applyBounds(id: string) {
+        const react = currentBounds();
+        if (react && openedViews.has(id)) {
+            setTabBounds(id, react);
+        }
+    }
+
     $effect (() => {
         if (openedViews.has(activeId)) {
+            applyBounds(activeId);
             showTabWebview(activeId);
         }
     });
@@ -46,6 +56,16 @@
         observer.observe(contentEl);
         return () => observer.disconnect();
     });
+
+    $effect(() => {
+        const unlisten = onTabUrlChanged(({ tabId, url }) => {
+            const tab = tabs.find((t) => t.id === tabId);
+            if (tab) tab.url = url;
+        });
+        return () => {
+            unlisten.then((off) => off());
+        };
+    });
     
 
     function newTab() {
@@ -59,10 +79,13 @@
         if (i === -1) return;
         tabs.splice(i, 1);
         if (openedViews.has(id)) {
-            closeTabWebview;
+            closeTabWebview(id);
             openedViews.delete(id);
         }
-        if (tabs.length === 0) { newTab(); return;}
+        if (tabs.length === 0) {
+            getCurrentWindow().close();
+            return;
+        }
         if (activeId === id) activeId = tabs[Math.max(0, i - 1)].id;
     }
     function selectTab(id: string) { activeId = id;}

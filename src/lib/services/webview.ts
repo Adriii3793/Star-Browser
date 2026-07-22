@@ -1,4 +1,5 @@
 import {call} from './ipc';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 function bounds(rect: DOMRect) {
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height};
@@ -23,4 +24,15 @@ export function showTabWebview(tabId: string): Promise<void> {
 
 export function closeTabWebview(tabId: string): Promise<void> {
     return call('close_tab_webview', {tabId});
+}
+
+export interface TabUrlChanged {
+    tabId: string;
+    url: string;
+}
+
+export function onTabUrlChanged(
+    handler: (change: TabUrlChanged) => void
+): Promise<UnlistenFn> {
+    return listen<TabUrlChanged>('tab-url-changed', (event) => handler(event.payload));
 }

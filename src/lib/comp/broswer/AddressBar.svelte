@@ -3,6 +3,11 @@
         { url?: string; onnavigate: (u: string) => void; onchat: () => void } = $props();
     let value = $state('');
 
+    let focused = $state(false);
+    $effect(() => {
+        if (!focused) value = url;
+    });
+
     $effect(() => {
         value = url;
     });
