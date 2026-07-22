@@ -22,6 +22,10 @@ export function showTabWebview(tabId: string): Promise<void> {
     return call('show_tab_webview', {tabId});
 }
 
+export function hideTabWebview(tabId: string): Promise<void> {
+    return call('hide_tab_webview', {tabId});
+}
+
 export function closeTabWebview(tabId: string): Promise<void> {
     return call('close_tab_webview', {tabId});
 }

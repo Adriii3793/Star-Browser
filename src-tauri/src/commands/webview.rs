@@ -1,4 +1,4 @@
-use tauri::webview::WebviewBuilder;
+use tauri::webview::{WebviewBuilder};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewUrl};
 
 use crate::error::AppError;
@@ -117,6 +117,18 @@ pub async fn show_tab_webview(state: State<'_, AppState>, tab_id: String) -> Res
         else {
             webview.hide()?;
         }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_tab_webview(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<(), AppError> {
+    let label = label_for(&tab_id);
+    if let Some(webview) = state.views.lock().unwrap().get(&label) {
+        webview.hide()?;
     }
     Ok(())
 }

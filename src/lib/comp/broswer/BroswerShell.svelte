@@ -10,14 +10,15 @@
         navigateTabWebview,
         setTabBounds,
         showTabWebview,
+        hideTabWebview,
         closeTabWebview,
         onTabUrlChanged
     } from '$lib/services/webview';
     import { getCurrentWindow } from '@tauri-apps/api/window';
-    interface TabData {id: string; title: string; url: string;}
+    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean;}
 
     let tabs = $state<TabData[]>([
-        {id: crypto.randomUUID(), title: 'New tab', url: '' }
+        {id: crypto.randomUUID(), title: 'New tab', url: '', searchText: '', hasNavigated: false }
     ]);
     let activeId = $state(tabs[0].id);
     let showChat = $state(false);
@@ -26,7 +27,7 @@
     history.load();
 
     let contentEl = $state<HTMLElement>();
-        const openedViews = new SvelteSet<String>();
+        const openedViews = new SvelteSet<string>();
     function currentBounds() {
         return contentEl?.getBoundingClientRect();
     }
@@ -39,9 +40,13 @@
     }
 
     $effect (() => {
-        if (openedViews.has(activeId)) {
-            applyBounds(activeId);
-            showTabWebview(activeId);
+        for (const id of  openedViews) {
+            if (id === activeId) {
+                applyBounds(id);
+                showTabWebview(id);
+            } else {
+                hideTabWebview(id);
+            }
         }
     });
 
@@ -70,7 +75,7 @@
 
     function newTab() {
         const id = crypto.randomUUID();
-        tabs.push({id, title: 'New tab', url: ''});
+        tabs.push({id, title: 'New tab', url: '', searchText: '', hasNavigated: false});
         activeId = id;
     
     }
@@ -102,6 +107,8 @@
             : `https://www.google.com/search?q=${encodeURIComponent(input)}`;
 
             tab.url = url;
+            tab.searchText = input;
+            tab.hasNavigated = true;
             tab.title = input;
             history.record(url, input, isUrl ? null : input);
 
@@ -131,15 +138,17 @@
         <div class="drag-region" data-tauri-drag-region></div>
         <WindowControls />
     </div>
-    <AddressBar 
-        url ={activeTab?.url ?? ''}
-        onnavigate={navigate}
-        onchat = {() => (showChat = !showChat)}
-    />
+    {#key activeTab?.id}
+        <AddressBar 
+            url={activeTab?.url || activeTab?.searchText || ''}
+            onnavigate={navigate}
+            onchat={() => (showChat = !showChat)}
+        />
+    {/key}
 
     <div class="body">
         <div class="content" bind:this={contentEl}>
-            {#if activeTab?.url}
+            {#if activeTab?.hasNavigated}
             <div class="placeholder">
                 <i class="ti ti-world"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" />
