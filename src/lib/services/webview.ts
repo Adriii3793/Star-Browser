@@ -40,3 +40,13 @@ export function onTabUrlChanged(
 ): Promise<UnlistenFn> {
     return listen<TabUrlChanged>('tab-url-changed', (event) => handler(event.payload));
 }
+
+export function tabBack(tabId: string): Promise<void> {
+    return call('tab_back', {tabId});
+}
+export function tabForward(tabId: string): Promise<void> {
+    return call('tab_forward', {tabId});
+}
+export function tabReload(tabId: string): Promise<void> {
+    return call('tab_reload', {tabId});
+}

@@ -145,3 +145,30 @@ pub async fn close_tab_webview(
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn tab_back(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
+    let label = label_for(&tab_id);
+    if let Some(webview) = state.views.lock().unwrap().get(&label) {
+        webview.eval("history.back()")?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn tab_forward(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
+    let label= label_for(&tab_id);
+    if let Some(webview) = state.views.lock().unwrap().get(&label) {
+        webview.eval("history.forward()")?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn tab_reload(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
+    let label = label_for(&tab_id);
+    if let Some(webview) = state.views.lock().unwrap().get(&label) {
+        webview.eval("location.reload()")?;
+    }
+    Ok(())
+}

@@ -12,13 +12,16 @@
         showTabWebview,
         hideTabWebview,
         closeTabWebview,
-        onTabUrlChanged
+        onTabUrlChanged,
+        tabBack,
+        tabForward,
+        tabReload
     } from '$lib/services/webview';
     import { getCurrentWindow } from '@tauri-apps/api/window';
-    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean;}
+    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number;}
 
     let tabs = $state<TabData[]>([
-        {id: crypto.randomUUID(), title: 'New tab', url: '', searchText: '', hasNavigated: false }
+        {id: crypto.randomUUID(), title: 'New tab', url: '', searchText: '', hasNavigated: false, hist: [], cursor: -1 }
     ]);
     let activeId = $state(tabs[0].id);
     let showChat = $state(false);
@@ -41,7 +44,8 @@
 
     $effect (() => {
         for (const id of  openedViews) {
-            if (id === activeId) {
+            const t = tabs.find((x) => x.id === id);
+            if (id === activeId && t?.hasNavigated) {
                 applyBounds(id);
                 showTabWebview(id);
             } else {
@@ -65,7 +69,12 @@
     $effect(() => {
         const unlisten = onTabUrlChanged(({ tabId, url }) => {
             const tab = tabs.find((t) => t.id === tabId);
-            if (tab) tab.url = url;
+            if (!tab) return;
+            tab.url = url;
+            if (tab.hist[tab.cursor] === url) return;
+            tab.hist = tab?.hist.slice(0, tab.cursor + 1);
+            tab.hist.push(url);
+            tab.cursor = tab?.hist.length - 1;
         });
         return () => {
             unlisten.then((off) => off());
@@ -75,7 +84,7 @@
 
     function newTab() {
         const id = crypto.randomUUID();
-        tabs.push({id, title: 'New tab', url: '', searchText: '', hasNavigated: false});
+        tabs.push({id, title: 'New tab', url: '', searchText: '', hasNavigated: false, hist: [], cursor: -1});
         activeId = id;
     
     }
@@ -105,7 +114,9 @@
         const url = isUrl
             ? (input.startsWith('http') ? input :`https://${input}`)
             : `https://www.google.com/search?q=${encodeURIComponent(input)}`;
-
+            tab.hist = tab.hist.slice(0, tab.cursor +1 );
+            tab.hist.push(url);
+            tab.cursor = tab.hist.length -1;
             tab.url = url;
             tab.searchText = input;
             tab.hasNavigated = true;
@@ -122,7 +133,34 @@
                 }
             }
 
-    }    
+    }
+    function goBack() {
+        const tab = activeTab;
+        if (!tab) return;
+        if (tab.cursor > 0) {
+            tab.cursor -=1;
+            tab.url = tab.hist[tab.cursor];
+            navigateTabWebview(tab.id, tab.hist[tab.cursor]);
+        } else if (tab.cursor === 0) {
+            tab.cursor =-1;
+            tab.hasNavigated = false
+        }
+    }
+
+    function goForward() {
+        const tab = activeTab;
+        if (!tab) return;
+        if (tab.cursor === -1 && tab.hist.length > 0) {
+            tab.cursor = 0;
+            tab.url = tab.hist[0];
+            tab.hasNavigated = true;
+            navigateTabWebview(tab.id, tab.hist[0]);
+        } else if (tab.cursor < tab.hist.length -1) {
+            tab.cursor +=1;
+            tab.url = tab.hist[tab.cursor];
+            navigateTabWebview(tab.id, tab.hist[tab.cursor]);
+        }
+    }
 </script>
 
 <div class="shell">
@@ -143,6 +181,9 @@
             url={activeTab?.url || activeTab?.searchText || ''}
             onnavigate={navigate}
             onchat={() => (showChat = !showChat)}
+            onback={goBack}
+            onforward={goForward}
+            onreload={() => activeTab?.hasNavigated && tabReload(activeId)}
         />
     {/key}
 

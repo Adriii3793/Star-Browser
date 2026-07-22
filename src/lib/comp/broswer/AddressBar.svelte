@@ -1,6 +1,13 @@
 <script lang="ts">
-    let { url = '', onnavigate, onchat}:
-        { url?: string; onnavigate: (u: string) => void; onchat: () => void } = $props();
+    let { url = '', onnavigate, onchat, onback, onforward, onreload }:
+        { 
+            url?: string;
+            onnavigate: (u: string) => void;
+            onchat: () => void;
+            onback: () => void;
+            onforward: () => void;
+            onreload: () => void;
+        } = $props();
     let value = $state('');
 
     let focused = $state(false);
@@ -15,21 +22,29 @@
 </script>
 
 <div class="navbar">
-    <i class="ti ti-chevron-left nav"> <svg class="nav" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M15 6l-6 6l6 6" />
-    </svg></i>
-    <i class="ti ti-chevron-right nav dim"><svg class="nav dim" style="opacity: 0.3;" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 6l6 6l-6 6" />
-    </svg></i>
-    <i class="ti ti-refresh nav"><svg class="nav" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -5v5h5" />
-        <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 5v-5h-5" />
-    </svg></i>
+    <button class="navbtn" aria-label="Back" onclick={onback}>
+        <svg class="nav" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 6l-6 6l6 6" />
+        </svg>
+    </button>
+    <button class="navbtn" aria-label="Forward" onclick={onforward}>
+        <svg class="nav dim" style="opacity: 0.3;" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 6l6 6l-6 6" />
+        </svg>
+    </button>
+    <button class="navbtn" aria-label="Reload" onclick={onreload}>
+        <svg class="nav" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -5v5h5" />
+            <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 5v-5h-5" />
+        </svg>
+    </button>
 
     <div class="field">
         <i class="ti ti-lock lock"></i>
         <input
             bind:value
+            onfocus={() => (focused = true)}
+            onblur={() => (focused = false)}
             onkeydown={(e) => e.key === 'Enter' && onnavigate(value)}
             placeholder="Search"
         />
@@ -54,6 +69,15 @@
         }
         .nav.dim {
             color:var(--text-muted); 
+        }
+        .navbtn {
+            display:flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: none;
+            background: transparent;
+            cursor: pointer;
         }
         .field {
             flex:1; display:flex;align-items: center;gap:8px;

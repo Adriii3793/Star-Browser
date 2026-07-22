@@ -42,6 +42,9 @@ pub fn run() {
         commands::webview::close_tab_webview,
         commands::ai::usage_status,
         commands::ai::ai_chat,
+        commands::webview::tab_back,
+        commands::webview::tab_forward,
+        commands::webview::tab_reload,
     ])
     .run(tauri::generate_context!())
     .expect("Errore Avvio")
