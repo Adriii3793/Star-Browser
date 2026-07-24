@@ -10,6 +10,7 @@
     "frontendDist": "../build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "star",
@@ -20,7 +21,8 @@
         "minWidth": 800,
         "minHeight": 600,
         "decorations": false,
-        "transparent": false
+        "transparent": false,
+        "dragDropEnabled": false
 
 
       }

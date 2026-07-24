@@ -43,6 +43,7 @@ pub async fn open_tab_webview(
     let nav_app = app.clone();
     let nav_tab_id = tab_id.clone();
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
+        .zoom_hotkeys_enabled(true)
         .on_navigation(move |url| {
             let _ = nav_app.emit(
                 "tab-url-changed",
@@ -111,6 +112,9 @@ pub async fn show_tab_webview(state: State<'_, AppState>, tab_id: String) -> Res
     let views = state.views.lock().unwrap();
 
     for(label, webview) in views.iter() {
+        if *label == MENU_LABEL {
+            continue;
+        }
         if *label == target {
             webview.show()?;
         } 
@@ -142,6 +146,70 @@ pub async fn close_tab_webview(
     let label = label_for(&tab_id);
     if let Some(webview) = state.views.lock().unwrap().remove(&label) {
         webview.close()?;
+    }
+    Ok(())
+}
+
+const MENU_LABEL: &str = "__menu_overlay__";
+
+#[tauri::command]
+pub async fn open_menu_webview(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), AppError> {
+    {
+        let views = state.views.lock().unwrap();
+        if let Some(webview) = views.get(MENU_LABEL) {
+            webview.set_position(LogicalPosition::new(x, y))?;
+            webview.set_size(LogicalSize::new(width, height))?;
+            webview.show()?;
+            let _ = webview.set_focus();
+            return Ok(());
+        }
+    }
+
+    let builder = WebviewBuilder::new(MENU_LABEL, WebviewUrl::App("menu".into()))
+        .transparent(true);
+
+    let main = app.get_window("main").ok_or(AppError::WindowNotFound)?;
+
+    let webview = main.add_child(
+        builder,
+        LogicalPosition::new(x, y),
+        LogicalSize::new(width, height),
+    )?;
+    webview.show()?;
+    let _ = webview.set_focus();
+
+    state
+        .views
+        .lock()
+        .unwrap()
+        .insert(MENU_LABEL.to_string(), webview);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_menu_webview(state: State<'_, AppState>) -> Result<(), AppError> {
+    if let Some(webview) = state.views.lock().unwrap().remove(MENU_LABEL) {
+        webview.close()?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_tab_zoom(
+    state: State<'_, AppState>,
+    tab_id: String,
+    factor: f64,
+) -> Result<(), AppError> {
+    let label = label_for(&tab_id);
+    if let Some(webview) = state.views.lock().unwrap().get(&label) {
+        webview.set_zoom(factor)?;
     }
     Ok(())
 }

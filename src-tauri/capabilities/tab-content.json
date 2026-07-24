@@ -6,5 +6,5 @@
         "tab-*"
     ],
     "windows": [],
-    "permissions": []
+    "permissions": ["core:webview:allow-set-webview-zoom"]
 }

@@ -1,27 +1,27 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { platform as detectPlatform } from '@tauri-apps/plugin-os';
 
 	type Platform = 'macos' | 'windows' | 'linux';
 
-	export let platform: Platform | undefined = undefined;
+	interface Props {
+		platform?: Platform;
+		background?: string;
+		onminimize?: () => void;
+		onmaximize?: (maximized: boolean) => void;
+		onclose?: () => void;
+	}
 
-	export let background: string | undefined = undefined;
+	let { platform, background, onminimize, onmaximize, onclose }: Props = $props();
 
-	const dispatch = createEventDispatcher<{
-		minimize: void;
-		maximize: { maximized: boolean };
-		close: void;
-	}>();
-
-	let os: Platform = 'windows';
-	let maximized = false;
+	let os = $state<Platform>('windows');
+	let maximized = $state(false);
 	let unlistenResize: (() => void) | undefined;
 
-	let root: HTMLElement;
-	let mounted = false;
-	let tone: 'light' | 'dark' = 'light';
+	let root = $state<HTMLElement | undefined>(undefined);
+	let mounted = $state(false);
+	let tone = $state<'light' | 'dark'>('light');
 	let observer: MutationObserver | undefined;
 
 	type Rgba = { r: number; g: number; b: number; a: number };
@@ -112,10 +112,12 @@
 		tone = againstWhite > againstBlack ? 'dark' : 'light';
 	}
 
-	$: if (mounted) {
-		background;
-		updateTone();
-	}
+	$effect(() => {
+		if (mounted) {
+			background;
+			updateTone();
+		}
+	});
 
 	function resolvePlatform(): Platform {
 		if (platform) return platform;
@@ -147,7 +149,7 @@
 	}
 
 	async function minimize() {
-		dispatch('minimize');
+		onminimize?.();
 		await appWindow()?.minimize().catch(() => {});
 	}
 
@@ -160,11 +162,11 @@
 			}
 			await refreshMaximized();
 		}
-		dispatch('maximize', { maximized });
+		onmaximize?.(maximized);
 	}
 
 	async function close() {
-		dispatch('close');
+		onclose?.();
 		await appWindow()?.close().catch(() => {});
 	}
 
@@ -202,19 +204,19 @@
 
 {#if os === 'macos'}
 	<div bind:this={root} class="controls macos" role="group" aria-label="Controlli finestra">
-		<button type="button" class="traffic close" aria-label="Chiudi" on:click={close}>
+		<button type="button" class="traffic close" aria-label="Chiudi" onclick={close}>
 			<svg viewBox="0 0 12 12" aria-hidden="true">
 				<path d="M3.35 3.35 L8.65 8.65 M8.65 3.35 L3.35 8.65" />
 			</svg>
 		</button>
 
-		<button type="button" class="traffic minimize" aria-label="Riduci a icona" on:click={minimize}>
+		<button type="button" class="traffic minimize" aria-label="Riduci a icona" onclick={minimize}>
 			<svg viewBox="0 0 12 12" aria-hidden="true">
 				<path d="M3 6 H9" />
 			</svg>
 		</button>
 
-		<button type="button" class="traffic maximize" aria-label="Ingrandisci" on:click={toggleMaximize}>
+		<button type="button" class="traffic maximize" aria-label="Ingrandisci" onclick={toggleMaximize}>
 			<svg viewBox="0 0 12 12" aria-hidden="true" class="filled">
 				<path d="M3.1 3.1 H6.9 L3.1 6.9 Z" />
 				<path d="M8.9 8.9 H5.1 L8.9 5.1 Z" />
@@ -230,7 +232,7 @@
 		role="group"
 		aria-label="Controlli finestra"
 	>
-		<button type="button" class="cell" aria-label="Riduci a icona" on:click={minimize}>
+		<button type="button" class="cell" aria-label="Riduci a icona" onclick={minimize}>
 			<svg viewBox="0 0 10 10" aria-hidden="true">
 				<path d="M0 5 H10" />
 			</svg>
@@ -240,7 +242,7 @@
 			type="button"
 			class="cell"
 			aria-label={maximized ? 'Ripristina' : 'Ingrandisci'}
-			on:click={toggleMaximize}
+			onclick={toggleMaximize}
 		>
 			{#if maximized}
 				<svg viewBox="0 0 10 10" aria-hidden="true">
@@ -254,7 +256,7 @@
 			{/if}
 		</button>
 
-		<button type="button" class="cell close" aria-label="Chiudi" on:click={close}>
+		<button type="button" class="cell close" aria-label="Chiudi" onclick={close}>
 			<svg viewBox="0 0 10 10" aria-hidden="true">
 				<path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" />
 			</svg>

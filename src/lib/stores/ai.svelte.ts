@@ -1,4 +1,4 @@
-import {aiChat, usageStatus, type ChatMessage} from '$lib/services/ai';
+import {aiChat, usageStatus, type ChatMessage, type ContentPart} from '$lib/services/ai';
 
 class AiStore {
     messages = $state<ChatMessage[]>([]);
@@ -17,17 +17,17 @@ class AiStore {
         this.limit = status.limit;
     }
 
-    async send(text: string) {
-        const content = text.trim();
-        if (!content || this.sending) return;
+    async send(content: string | ContentPart[]) {
+        const isEmpty = typeof content === 'string' ? !content.trim() : content.length === 0;
+        if (isEmpty || this.sending) return;
 
         this.error = null;
-        this.messages.push({ role: 'user', content});
+        this.messages = [...this.messages, { role: 'user', content }];
         this.sending = true;
 
         try {
             const reply = await aiChat(this.messages);
-            this.messages.push({role: 'assistant', content: reply});
+            this.messages = [...this.messages, { role: 'assistant', content: reply }];
             await this.refreshUsage();
         } catch (e) {
             this.error = String(e);
@@ -39,6 +39,10 @@ class AiStore {
     reset() {
         this.messages = [];
         this.error = null;
+    }
+
+    setMessages(msgs: ChatMessage[]) {
+        this.messages = msgs;
     }
 }
 

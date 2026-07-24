@@ -41,6 +41,14 @@ export function onTabUrlChanged(
     return listen<TabUrlChanged>('tab-url-changed', (event) => handler(event.payload));
 }
 
+export function openMenuWebview(rect: DOMRect): Promise<void> {
+    return call('open_menu_webview', {...bounds(rect)});
+}
+
+export function closeMenuWebview(): Promise<void> {
+    return call('close_menu_webview', {});
+}
+
 export function tabBack(tabId: string): Promise<void> {
     return call('tab_back', {tabId});
 }
@@ -49,4 +57,8 @@ export function tabForward(tabId: string): Promise<void> {
 }
 export function tabReload(tabId: string): Promise<void> {
     return call('tab_reload', {tabId});
+}
+
+export function setTabZoomWebview(tabId: string, factor: number): Promise<void> {
+    return call('set_tab_zoom', {tabId, factor});
 }

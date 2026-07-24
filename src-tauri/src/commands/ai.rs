@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::State;
 
 use crate::error::AppError;
@@ -7,7 +8,7 @@ use crate::state::AppState;
 
 const DAILY_LIMIT: i64 = 50;
 const WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
-const MODEL: &str = "google/gemma-4-31b-it:free";
+const MODEL: &str = "google/gemma-4-26b-a4b-it:free";
 
 fn api_key() -> Result<String, AppError> {
     std::env::var("OPENROUTER_API_KEY").map_err(|_| AppError::MissingApiKey)
@@ -51,8 +52,8 @@ struct ChatRequest <'a> {
 }
 #[derive(Serialize, Deserialize)]
 pub struct ChatMessage {
-    pub role:String,
-    pub content: String,
+    pub role: String,
+    pub content: Value,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +64,18 @@ struct ChatResponse {
 #[derive(Deserialize)]
 struct Choice {
     message: ChatMessage,
+}
+
+fn content_to_text(content: &Value) -> String {
+    match content {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 #[tauri::command]
@@ -102,7 +115,7 @@ pub async fn ai_chat(
         .choices
         .into_iter()
         .next()
-        .map(|choice| choice.message.content)
+        .map(|choice| content_to_text(&choice.message.content))
         .ok_or(AppError::AiRequest)?;
 
     sqlx::query("INSERT INTO usage_log (used_at) VALUES (?1)")
