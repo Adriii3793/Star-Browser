@@ -35,9 +35,11 @@
     role="button"
     tabindex="0"
     aria-label="Close"
-    onclick={oncancel}
+    onclick={(e) => {
+        if (e.target === e.currentTarget) oncancel();
+    }}
     onkeydown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
             e.preventDefault();
             oncancel();
         }
@@ -49,7 +51,6 @@
         tabindex="-1"
         aria-modal="true"
         aria-label="Edit favorite"
-        onpointerdown={(e) => e.stopPropagation()}
     >
     <form onsubmit={submit}>
         <h2>{initialTitle ? 'Edit Favorite' : 'Add Favorite'}</h2>

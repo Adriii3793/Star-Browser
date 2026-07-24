@@ -15,21 +15,22 @@
     role="button"
     tabindex="0"
     aria-label="Close settings"
-    onclick={onclose}
+    onclick={(e) => {
+        if (e.target === e.currentTarget) onclose();
+    }}
     onkeydown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
             e.preventDefault();
             onclose();
         }
     }}
 >
-<div 
+<div
     class="panel"
     role="dialog"
     tabindex="-1"
     aria-modal="true"
     aria-label="Settings"
-    onpointerdown={(e) => e.stopPropagation()}
 >
         <header>
             <h2>Settings</h2>

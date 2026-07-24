@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { platform as osPlatform } from '@tauri-apps/plugin-os';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import Setup from '$lib/comp/setup/setup.svelte';
   import BroswerShell from '$lib/comp/broswer/BroswerShell.svelte';
   import WindowControls from '$lib/comp/broswer/WindowControls.svelte';
@@ -9,6 +10,8 @@
 
   let setupDone = $state<boolean | null>(null);
   let os = $state<'macos' | 'windows' | 'linux'>('windows');
+  // When the window fills the screen the rounded corners must disappear.
+  let squared = $state(false);
 
   onMount(async () => {
     try {
@@ -18,16 +21,34 @@
       os = 'windows';
     }
 
+    let unlisten: (() => void) | undefined;
+    try {
+      const win = getCurrentWindow();
+      const sync = async () => {
+        try {
+          squared = (await win.isMaximized()) || (await win.isFullscreen());
+        } catch {
+          squared = false;
+        }
+      };
+      await sync();
+      unlisten = await win.onResized(sync);
+    } catch {
+      squared = false;
+    }
+
     try {
       setupDone = await invoke('is_setup_complete');
     } catch (e) {
       console.warn('is_setup_complete non disponibile', e);
       setupDone = true;
     }
+
+    void unlisten;
   });
 </script>
 
-<div class="app">
+<div class="app" class:squared>
   {#if setupDone === null || setupDone === false}
     <div class="titlebar" class:mac={os === 'macos'}>
       {#if os === 'macos'}
@@ -64,6 +85,8 @@
     padding: 0;
     height: 100%;
     overflow: hidden;
+    /* Transparent so the rounded corners of .app reveal nothing behind them. */
+    background: transparent;
   }
 
   .app {
@@ -72,6 +95,13 @@
     height: 100vh;
     width: 100vw;
     overflow: hidden;
+    border-radius: 12px;
+    background: var(--bg-chrome);
+  }
+
+  /* Maximized / fullscreen windows must have flush, square corners. */
+  .app.squared {
+    border-radius: 0;
   }
 
   .titlebar {

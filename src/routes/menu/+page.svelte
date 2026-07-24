@@ -33,6 +33,10 @@
         <BrowserMenu
             onclose={close}
             onnewtab={() => send('newtab')}
+            onhistory={() => send('history')}
+            oncleardata={() => send('cleardata')}
+            onprint={() => send('print')}
+            onfullscreen={() => send('fullscreen')}
             onsettings={() => send('settings')}
             {zoom}
             onzoomin={() => send('zoomin')}

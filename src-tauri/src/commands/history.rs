@@ -42,7 +42,7 @@ pub async fn record_visit(
         title = excluded.title,
         query = COALESCE(excluded.query, history.query),
         visited_at = excluded.visited_at,
-        visited_count = history.visit_count + 1",
+        visit_count = history.visit_count + 1",
     )
     .bind(url)
     .bind(title)
@@ -81,7 +81,7 @@ pub async fn search_history(
     let pattern = format!("%{}%", term.trim());
 
     let entries = sqlx::query_as::<_, HistoryEntry>(
-        "SELECT id, url, title, query, visited_at, visited_count
+        "SELECT id, url, title, query, visited_at, visit_count
         FROM history
         WHERE query LIKE ?1 OR title LIKE ?1 OR url LIKE ?1
         ORDER BY visited_at DESC

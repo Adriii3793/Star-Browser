@@ -6,6 +6,7 @@
     import  {history} from '$lib/stores/history.svelte';
     import {SvelteSet} from 'svelte/reactivity';
     import Settings from './Settings.svelte';
+    import History from './History.svelte';
     import FavoriteDialog from './FavoriteDialog.svelte';
     import { prefs } from '$lib/stores/prefs.svelte';
     import { favorites } from '$lib/stores/favorites.svelte';
@@ -23,11 +24,26 @@
         tabBack,
         tabForward,
         tabReload,
+        tabPrint,
         setTabZoomWebview
     } from '$lib/services/webview';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { listen, emit } from '@tauri-apps/api/event';
+    import { onMount } from 'svelte';
+    import { platform as detectPlatform } from '@tauri-apps/plugin-os';
     interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number;}
+
+    type OS = 'macos' | 'windows' | 'linux';
+    let os = $state<OS>('windows');
+
+    onMount(() => {
+        try {
+            const p = detectPlatform();
+            os = p === 'macos' ? 'macos' : p === 'linux' ? 'linux' : 'windows';
+        } catch {
+            os = /Macintosh|Mac OS X/.test(navigator.userAgent) ? 'macos' : 'windows';
+        }
+    });
 
     const ZOOM_MIN = 0.25;
     const ZOOM_MAX = 5;
@@ -44,6 +60,7 @@
     history.load();
 
     let showSettings = $state(false);
+    let showHistory = $state(false);
     let menuOpen = $state(false);
 
     prefs.init();
@@ -190,7 +207,10 @@
             closeMenu();
             if (action === 'newtab') newTab();
             else if (action === 'settings') showSettings = true;
-            else if (action === 'history') history.load();
+            else if (action === 'history') showHistory = true;
+            else if (action === 'cleardata') history.clear();
+            else if (action === 'print') printActiveTab();
+            else if (action === 'fullscreen') toggleFullscreen();
         });
         const unlistenClose = listen('menu-close', () => closeMenu());
         return () => {
@@ -198,6 +218,19 @@
             unlistenClose.then((off) => off());
         };
     });
+
+    async function toggleFullscreen() {
+        const win = getCurrentWindow();
+        try {
+            const isFull = await win.isFullscreen();
+            await win.setFullscreen(!isFull);
+        } catch {
+        }
+    }
+
+    function printActiveTab() {
+        if (activeTab?.hasNavigated) tabPrint(activeId);
+    }
 
     $effect (() => {
         if (!contentEl) return;
@@ -313,10 +346,28 @@
     function zoomReset() { setZoom(1); }
 
     function handleShortcuts(e: KeyboardEvent) {
+        // Shortcuts without a modifier.
+        if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); return; }
+
         if (!(e.ctrlKey || e.metaKey)) return;
+
+        const key = e.key.toLowerCase();
+
+        if (e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
+            e.preventDefault();
+            history.clear();
+            return;
+        }
+
+        if (e.shiftKey) return;
+
         if (e.key === '=' || e.key === '+') { e.preventDefault(); zoomIn(); }
         else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); }
         else if (e.key === '0') { e.preventDefault(); zoomReset(); }
+        else if (key === 't') { e.preventDefault(); newTab(); }
+        else if (key === 'h') { e.preventDefault(); showHistory = true; }
+        else if (key === 'p') { e.preventDefault(); printActiveTab(); }
+        else if (key === 'w') { e.preventDefault(); closeTab(activeId); }
     }
     function goBack() {
         const tab = activeTab;
@@ -325,10 +376,14 @@
         if (tab.cursor > 0) {
             tab.cursor -=1;
             tab.url = tab.hist[tab.cursor];
+            tab.title = tab.hist[tab.cursor];
             navigateTabWebview(tab.id, tab.hist[tab.cursor]);
         } else if (tab.cursor === 0) {
+            // Returning to the Home page: clear every trace of the closed site so the
+            // tab pill and address bar reflect the real state.
             tab.cursor =-1;
-            tab.hasNavigated = false
+            tab.hasNavigated = false;
+            tab.title = 'New tab';
         }
     }
 
@@ -339,11 +394,13 @@
         if (tab.cursor === -1 && tab.hist.length > 0) {
             tab.cursor = 0;
             tab.url = tab.hist[0];
+            tab.title = tab.hist[0];
             tab.hasNavigated = true;
             navigateTabWebview(tab.id, tab.hist[0]);
         } else if (tab.cursor < tab.hist.length -1) {
             tab.cursor +=1;
             tab.url = tab.hist[tab.cursor];
+            tab.title = tab.hist[tab.cursor];
             navigateTabWebview(tab.id, tab.hist[tab.cursor]);
         }
     }
@@ -352,7 +409,10 @@
 <svelte:window onkeydown={handleShortcuts} />
 
 <div class="shell">
-    <div class="topbar">
+    <div class="topbar" class:mac={os === 'macos'}>
+        {#if os === 'macos'}
+            <WindowControls platform={os} />
+        {/if}
         <div class="menuwrap" bind:this={menuBtnEl}>
             <button
                 class="menubtn"
@@ -367,7 +427,7 @@
                 </svg>
             </button>
         </div>
-        <TabBar 
+        <TabBar
             {tabs}
             {activeId}
             onselect={selectTab}
@@ -376,11 +436,13 @@
             onreorder={moveTab}
         />
         <div class="drag-region" data-tauri-drag-region></div>
-        <WindowControls />
+        {#if os !== 'macos'}
+            <WindowControls platform={os} />
+        {/if}
     </div>
     {#key activeTab?.id}
         <AddressBar
-            url={activeTab?.url || activeTab?.searchText || ''}
+            url={activeTab?.hasNavigated ? (activeTab?.url || activeTab?.searchText || '') : ''}
             onnavigate={navigate}
             onchat={() => (showChat = !showChat)}
             onback={goBack}
@@ -490,6 +552,10 @@
 
 {#if showSettings}
 <Settings onclose={() => (showSettings = false)} />
+{/if}
+
+{#if showHistory}
+<History onclose={() => (showHistory = false)} onopen={(url) => navigate(url)} />
 {/if}
 
 {#if favDialog}
@@ -628,6 +694,9 @@
 
     .fav-tile {
         position: relative;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
     }
 
     .fav-tile.editing {
@@ -639,6 +708,13 @@
         opacity: 0.6;
         animation: none;
         z-index: 2;
+        cursor: grabbing;
+        pointer-events: none;
+    }
+
+    .fav-tile.dragging .fav-icon {
+        transform: none;
+        box-shadow: none;
     }
 
     @keyframes fav-wiggle {

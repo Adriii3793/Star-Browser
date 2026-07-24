@@ -55,6 +55,15 @@ pub async fn open_tab_webview(
             true
         });
 
+    // macOS ships a Safari/WebKit WKWebView whose default User-Agent makes sites
+    // like Google serve a degraded/legacy layout. Present a modern Chrome UA so the
+    // rendered experience matches the Chromium-based WebView2 used on Windows.
+    #[cfg(target_os = "macos")]
+    let builder = builder.user_agent(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
+         (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    );
+
     let main = app
     .get_window("main")
     .ok_or(AppError::WindowNotFound)?;
@@ -237,6 +246,15 @@ pub async fn tab_reload(state: State<'_, AppState>, tab_id: String) -> Result<()
     let label = label_for(&tab_id);
     if let Some(webview) = state.views.lock().unwrap().get(&label) {
         webview.eval("location.reload()")?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn tab_print(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
+    let label = label_for(&tab_id);
+    if let Some(webview) = state.views.lock().unwrap().get(&label) {
+        webview.eval("window.print()")?;
     }
     Ok(())
 }

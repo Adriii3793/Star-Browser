@@ -69,19 +69,26 @@
 
         }
         .nav {
-            font-size: 18px; color: var(--text-soft); cursor:pointer; 
+            font-size: 18px; color: var(--text); cursor:pointer;
         }
         .nav.dim {
-            color:var(--text-muted); 
+            color: rgba(74, 58, 46, 0.28);
         }
         .navbtn {
             display:flex;
             align-items: center;
             justify-content: center;
+            width: 30px;
+            height: 30px;
             padding: 0;
             border: none;
+            border-radius: 8px;
             background: transparent;
             cursor: pointer;
+            transition: background-color 0.14s ease;
+        }
+        .navbtn:hover:not(:disabled) {
+            background: var(--field);
         }
         .navbtn:disabled {
             cursor: default;

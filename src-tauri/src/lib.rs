@@ -47,6 +47,7 @@ pub fn run() {
         commands::webview::tab_back,
         commands::webview::tab_forward,
         commands::webview::tab_reload,
+        commands::webview::tab_print,
         commands::webview::set_tab_zoom,
     ])
     .run(tauri::generate_context!())

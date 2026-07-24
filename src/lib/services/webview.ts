@@ -58,6 +58,9 @@ export function tabForward(tabId: string): Promise<void> {
 export function tabReload(tabId: string): Promise<void> {
     return call('tab_reload', {tabId});
 }
+export function tabPrint(tabId: string): Promise<void> {
+    return call('tab_print', {tabId});
+}
 
 export function setTabZoomWebview(tabId: string, factor: number): Promise<void> {
     return call('set_tab_zoom', {tabId, factor});

@@ -45,11 +45,12 @@
 	}
 
 	function messageText(message: ChatMessage): string {
-		if (typeof message.content === 'string') return message.content;
+		if (typeof message.content === 'string') return message.content.trim();
 		return message.content
 			.filter((p) => p.type === 'text')
 			.map((p) => p.text)
-			.join('\n');
+			.join('\n')
+			.trim();
 	}
 
 	function messageImages(message: ChatMessage): string[] {
@@ -148,60 +149,60 @@
 		if (dragDepth === 0) dragActive = false;
 	}
 
+	function attachFile(file: File) {
+		const isImage = file.type.startsWith('image/');
+		const isVideo = file.type.startsWith('video/');
+		const isText = file.type.startsWith('text/') || file.type === 'application/json';
+		if (!isImage && !isVideo && !isText) return;
+
+		const reader = new FileReader();
+		reader.onload = (event) => {
+			const data = event.target?.result as string;
+			attachments = [
+				...attachments,
+				{
+					type: isImage ? 'image' : isVideo ? 'video' : 'text',
+					data,
+					name: file.name || (isImage ? 'pasted-image.png' : 'attachment')
+				}
+			];
+		};
+		reader.readAsDataURL(file);
+	}
+
+	function collectFiles(dt: DataTransfer | null): File[] {
+		if (!dt) return [];
+		if (dt.files && dt.files.length > 0) return Array.from(dt.files);
+		// Some sources (browser images, screenshots) expose data only via items.
+		const files: File[] = [];
+		for (const item of Array.from(dt.items ?? [])) {
+			if (item.kind === 'file') {
+				const file = item.getAsFile();
+				if (file) files.push(file);
+			}
+		}
+		return files;
+	}
+
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
 		e.stopPropagation();
 		dragDepth = 0;
 		dragActive = false;
+		for (const file of collectFiles(e.dataTransfer)) attachFile(file);
+	}
 
-		const files = e.dataTransfer?.files;
-		if (!files) return;
-
-		for (let i = 0; i < files.length; i++) {
-			const file = files[i];
-			const isImage = file.type.startsWith('image/');
-			const isVideo = file.type.startsWith('video/');
-			const isText = file.type.startsWith('text/') || file.type === 'application/json';
-
-			if (isImage || isVideo || isText) {
-				const reader = new FileReader();
-				reader.onload = (event) => {
-					const data = event.target?.result as string;
-					attachments = [...attachments, {
-						type: isImage ? 'image' : isVideo ? 'video' : 'text',
-						data,
-						name: file.name
-					}];
-				};
-				reader.readAsDataURL(file);
-			}
-		}
+	function handlePaste(e: ClipboardEvent) {
+		const files = collectFiles(e.clipboardData);
+		if (files.length === 0) return;
+		// Only intercept when there is an actual file/image; keep normal text paste.
+		e.preventDefault();
+		for (const file of files) attachFile(file);
 	}
 
 	function handleFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
-		const files = input.files;
-		if (!files) return;
-
-		for (let i = 0; i < files.length; i++) {
-			const file = files[i];
-			const isImage = file.type.startsWith('image/');
-			const isVideo = file.type.startsWith('video/');
-			const isText = file.type.startsWith('text/') || file.type === 'application/json';
-
-			if (isImage || isVideo || isText) {
-				const reader = new FileReader();
-				reader.onload = (event) => {
-					const data = event.target?.result as string;
-					attachments = [...attachments, {
-						type: isImage ? 'image' : isVideo ? 'video' : 'text',
-						data,
-						name: file.name
-					}];
-				};
-				reader.readAsDataURL(file);
-			}
-		}
+		if (input.files) for (const file of Array.from(input.files)) attachFile(file);
 		input.value = '';
 	}
 
@@ -374,6 +375,7 @@
 			placeholder="Send a message or drag files here"
 			bind:value={draft}
 			onkeydown={handleKeydown}
+			onpaste={handlePaste}
 		></textarea>
 		<div class="toolbar">
 			<div class="group">
@@ -543,7 +545,6 @@
 		border-radius: 16px;
 		font-size: 14px;
 		line-height: 1.4;
-		white-space: pre-wrap;
 		word-break: break-word;
 	}
 	.msg.user {
@@ -558,6 +559,8 @@
 	}
 	.msg-text {
 		margin: 0;
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 	.msg-image {
 		display: block;
