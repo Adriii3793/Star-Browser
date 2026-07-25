@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { platform as detectPlatform } from '@tauri-apps/plugin-os';
+	import { windowChrome } from '$lib/stores/windowChrome.svelte';
 
 	type Platform = 'macos' | 'windows' | 'linux';
 
@@ -16,8 +17,7 @@
 	let { platform, background, onminimize, onmaximize, onclose }: Props = $props();
 
 	let os = $state<Platform>('windows');
-	let maximized = $state(false);
-	let unlistenResize: (() => void) | undefined;
+	let maximized = $derived(windowChrome.maximized);
 
 	let root = $state<HTMLElement | undefined>(undefined);
 	let mounted = $state(false);
@@ -140,29 +140,14 @@
 		}
 	}
 
-	async function refreshMaximized() {
-		try {
-			const state = await appWindow()?.isMaximized();
-			if (typeof state === 'boolean') maximized = state;
-		} catch {
-		}
-	}
-
 	async function minimize() {
 		onminimize?.();
 		await appWindow()?.minimize().catch(() => {});
 	}
 
 	async function toggleMaximize() {
-		const win = appWindow();
-		if (win) {
-			try {
-				(await win.isMaximized()) ? await win.unmaximize() : await win.maximize();
-			} catch {
-			}
-			await refreshMaximized();
-		}
-		onmaximize?.(maximized);
+		await windowChrome.toggle();
+		onmaximize?.(windowChrome.maximized);
 	}
 
 	async function close() {
@@ -188,17 +173,12 @@
 			});
 		}
 
-		refreshMaximized();
-
-		appWindow()
-			?.onResized(refreshMaximized)
-			.then((off) => (unlistenResize = off))
-			.catch(() => {});
+		windowChrome.init(os);
 	});
 
 	onDestroy(() => {
-		unlistenResize?.();
 		observer?.disconnect();
+		windowChrome.destroy();
 	});
 </script>
 

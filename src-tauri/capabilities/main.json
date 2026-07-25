@@ -1,7 +1,9 @@
 {
     "$schema": "../gen/schemas/desktop-schema.json",
     "identifier": "main",
-    "windows": ["main"],
+    "windows": [
+        "main"
+    ],
     "permissions": [
         "core:default",
         "core:path:default",
@@ -14,6 +16,11 @@
         "core:window:allow-set-fullscreen",
         "core:window:allow-is-fullscreen",
         "core:window:allow-start-dragging",
-        "os:default"
+        "core:window:allow-start-resize-dragging",
+        "os:default",
+        "core:window:allow-set-max-size",
+        "core:window:allow-set-size-constraints",
+        "core:window:allow-set-position",
+        "core:window:allow-set-size"
     ]
 }

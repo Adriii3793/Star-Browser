@@ -1,0 +1,20 @@
+{
+    "identifier": "com.studio.star",
+    "app": {
+        "windows": [
+            {
+                "title": "star",
+                "width": 800,
+                "height": 600,
+                "resizable": true,
+                "alwaysOnTop": false,
+                "minWidth": 800,
+                "minHeight": 600,
+                "decorations": false,
+                "transparent": true,
+                "shadow": true,
+                "dragDropEnabled": false
+            }
+        ]
+    }
+}

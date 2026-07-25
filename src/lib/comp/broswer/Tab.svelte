@@ -19,6 +19,9 @@
 		onpointerdown?: (e: PointerEvent) => void;
 	} = $props();
 
+	let iconFailed = $state(false);
+	$effect(() => { void favicon; iconFailed = false; })
+
 	function press(e: PointerEvent) {
 		if (e.target instanceof Element && e.target.closest('[data-close]')) return;
 		onpointerdown?.(e);
@@ -54,8 +57,8 @@
 	onkeydown={keydown}
 >
 	<span class="icon">
-		{#if favicon}
-			<img src={favicon} alt="" />
+		{#if favicon && !iconFailed}
+			<img src={favicon} alt="" onerror={() => (iconFailed = true)} />
 		{:else}
 			<svg viewBox="0 0 24 24" aria-hidden="true">
 				<circle cx="12" cy="12" r="9" />

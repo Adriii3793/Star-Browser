@@ -129,6 +129,15 @@
     }
 
     .menu {
+        --text: #4a3a2e;
+        --text-soft: #8a6b57;
+        --text-muted: #ac8064;
+        --field: #f7f1ec;
+        --tab-hover: #fbf6f2;
+        --accent: #e8734a;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility; 
         position: absolute;
         top: calc(100% + 6px);
         left: 0;

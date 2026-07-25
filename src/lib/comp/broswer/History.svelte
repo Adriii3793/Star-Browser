@@ -5,7 +5,6 @@
 
     let query = $state('');
 
-    // Refresh with a generous limit whenever the panel opens.
     history.load(200);
 
     function onkeydown(e: KeyboardEvent) {

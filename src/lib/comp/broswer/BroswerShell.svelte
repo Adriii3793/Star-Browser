@@ -19,6 +19,7 @@
         hideTabWebview,
         closeTabWebview,
         onTabUrlChanged,
+        onTabShortcut,
         openMenuWebview,
         closeMenuWebview,
         tabBack,
@@ -28,11 +29,12 @@
         setTabZoomWebview
     } from '$lib/services/webview';
     import { getCurrentWindow } from '@tauri-apps/api/window';
+    import { LogicalSize } from '@tauri-apps/api/dpi';
     import { listen, emit } from '@tauri-apps/api/event';
     import { onMount } from 'svelte';
     import { platform as detectPlatform } from '@tauri-apps/plugin-os';
-    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number;}
-
+    import { windowChrome } from '$lib/stores/windowChrome.svelte';
+    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number; favicon?: string;}
     type OS = 'macos' | 'windows' | 'linux';
     let os = $state<OS>('windows');
 
@@ -144,6 +146,15 @@
         return (text.trim()[0] ?? '?').toUpperCase();
     }
 
+    function faviconFor(rawUrl: string): string {
+        try {
+            const host = new URL(rawUrl).hostname;
+            return host ? `https://www.google.com/s2/favicons?domain=${host}&sz=64` : '';
+        } catch {
+            return '';
+        }
+    }
+
     function domainOf(url: string): string {
         try {
             return new URL(url).hostname.replace(/^www\./, '');
@@ -183,8 +194,11 @@
             closeMenu();
             return;
         }
+        const MENU_WIDTH = 300;
         const btn = menuBtnEl?.getBoundingClientRect();
-        const anchorX = btn ? btn.left : 6;
+        const anchorX = btn
+        ? Math.max(6, Math.min(btn.left, window.innerWidth - MENU_WIDTH - 6))
+        : 6;
         const anchorY = btn ? btn.bottom + 6 : 44;
         const rect = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
         menuOpen = true;
@@ -219,11 +233,42 @@
         };
     });
 
+    $effect(() => {
+        const unlisten = onTabShortcut(({ tabId, action }) => {
+            if (tabId !== activeId) return;
+            if (action === 'zoomin') zoomIn();
+            else if (action === 'zoomout') zoomOut();
+            else if (action === 'zoomreset') zoomReset();
+            else if (action === 'newtab') newTab();
+            else if (action === 'closetab') closeTab(activeId);
+            else if (action === 'history') showHistory = true;
+            else if (action === 'print') printActiveTab();
+            else if (action === 'cleardata') history.clear();
+        });
+        return () => {
+            unlisten.then((off) => off());
+        };
+    });
+
+    function toggleMaximizeOnDrag(e: MouseEvent) {
+        if (e.button !== 0) return;
+        windowChrome.toggle();
+    }
+
     async function toggleFullscreen() {
         const win = getCurrentWindow();
         try {
             const isFull = await win.isFullscreen();
+
+            if (!isFull && os === 'windows') {
+                await win.setMaxSize(null);
+            }
+
             await win.setFullscreen(!isFull);
+
+            if (isFull && os === 'windows') {
+                await win.setMaxSize(new LogicalSize(screen.availWidth, screen.availHeight));
+            }
         } catch {
         }
     }
@@ -255,11 +300,22 @@
     const lastActionAt = new Map<string, number>();
     const REDIRECT_WINDOW_MS = 1500;
 
+    const navPending = new Map<string, number>();
+    const NAV_WINDOW_MS = 4000;
+
     $effect(() => {
         const unlisten = onTabUrlChanged(({ tabId, url }) => {
             const tab = tabs.find((t) => t.id === tabId);
             if (!tab) return;
             tab.url = url;
+            tab.favicon = faviconFor(url);
+
+            const pending = navPending.get(tabId);
+            if (pending !== undefined) {
+                navPending.delete(tabId);
+                if (Date.now() - pending < NAV_WINDOW_MS) return;
+            }
+
             if (tab.hist[tab.cursor] === url) return;
             const sinceAction = Date.now() - (lastActionAt.get(tabId) ?? 0);
             if (sinceAction < REDIRECT_WINDOW_MS && tab.cursor >= 0) {
@@ -286,6 +342,8 @@
         if (i === -1) return;
         const wasLast = tabs.length === 1;
         tabs = tabs.filter((_, idx) => idx !== i);
+        lastActionAt.delete(id);
+        navPending.delete(id);
         if (openedViews.has(id)) {
             openedViews.delete(id);
             await closeTabWebview(id).catch(() => {});
@@ -317,6 +375,7 @@
             tab.searchText = input;
             tab.hasNavigated = true;
             tab.title = input;
+            tab.favicon = faviconFor(url);
             history.record(url, input, isUrl ? null : input);
 
             lastActionAt.set(tab.id, Date.now());
@@ -346,7 +405,6 @@
     function zoomReset() { setZoom(1); }
 
     function handleShortcuts(e: KeyboardEvent) {
-        // Shortcuts without a modifier.
         if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); return; }
 
         if (!(e.ctrlKey || e.metaKey)) return;
@@ -372,47 +430,53 @@
     function goBack() {
         const tab = activeTab;
         if (!tab || tab.cursor < 0) return;
-        lastActionAt.set(tab.id, Date.now());
-        if (tab.cursor > 0) {
-            tab.cursor -=1;
-            tab.url = tab.hist[tab.cursor];
-            tab.title = tab.hist[tab.cursor];
-            navigateTabWebview(tab.id, tab.hist[tab.cursor]);
-        } else if (tab.cursor === 0) {
-            // Returning to the Home page: clear every trace of the closed site so the
-            // tab pill and address bar reflect the real state.
-            tab.cursor =-1;
+
+        if (tab.cursor === 0) {
+            tab.cursor = -1;
             tab.hasNavigated = false;
             tab.title = 'New tab';
+            tab.favicon = '';
+            return;
         }
+
+        tab.cursor -= 1;
+        const target = tab.hist[tab.cursor];
+        tab.url = target;
+        tab.title = target;
+        tab.favicon = faviconFor(target);
+        lastActionAt.set(tab.id, Date.now());
+        navPending.set(tab.id, Date.now());
+        tabBack(tab.id);
     }
 
     function goForward() {
         const tab = activeTab;
         if (!tab || tab.cursor >= tab.hist.length - 1) return;
-        lastActionAt.set(tab.id, Date.now());
-        if (tab.cursor === -1 && tab.hist.length > 0) {
+
+        if (tab.cursor === -1) {
             tab.cursor = 0;
             tab.url = tab.hist[0];
             tab.title = tab.hist[0];
+            tab.favicon = faviconFor(tab.hist[0]);
             tab.hasNavigated = true;
-            navigateTabWebview(tab.id, tab.hist[0]);
-        } else if (tab.cursor < tab.hist.length -1) {
-            tab.cursor +=1;
-            tab.url = tab.hist[tab.cursor];
-            tab.title = tab.hist[tab.cursor];
-            navigateTabWebview(tab.id, tab.hist[tab.cursor]);
+            return;
         }
+
+        tab.cursor += 1;
+        const target = tab.hist[tab.cursor];
+        tab.url = target;
+        tab.title = target;
+        tab.favicon = faviconFor(target);
+        lastActionAt.set(tab.id, Date.now());
+        navPending.set(tab.id, Date.now());
+        tabForward(tab.id);
     }
 </script>
 
 <svelte:window onkeydown={handleShortcuts} />
 
 <div class="shell">
-    <div class="topbar" class:mac={os === 'macos'}>
-        {#if os === 'macos'}
-            <WindowControls platform={os} />
-        {/if}
+    {#snippet menuButton()}
         <div class="menuwrap" bind:this={menuBtnEl}>
             <button
                 class="menubtn"
@@ -427,6 +491,15 @@
                 </svg>
             </button>
         </div>
+    {/snippet}
+
+    <div class="topbar" class:mac={os === 'macos'}>
+        {#if os === 'macos'}
+            <WindowControls platform={os} />
+        {:else}
+            {@render menuButton()}
+        {/if}
+
         <TabBar
             {tabs}
             {activeId}
@@ -435,8 +508,11 @@
             onnew={newTab}
             onreorder={moveTab}
         />
-        <div class="drag-region" data-tauri-drag-region></div>
-        {#if os !== 'macos'}
+        <div class="drag-region" data-tauri-drag-region role="presentation" ondblclick={toggleMaximizeOnDrag}></div>
+
+        {#if os === 'macos'}
+            {@render menuButton()}
+        {:else}
             <WindowControls platform={os} />
         {/if}
     </div>

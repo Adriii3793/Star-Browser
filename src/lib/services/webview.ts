@@ -41,6 +41,17 @@ export function onTabUrlChanged(
     return listen<TabUrlChanged>('tab-url-changed', (event) => handler(event.payload));
 }
 
+export interface TabShortcut {
+    tabId: string;
+    action: string;
+}
+
+export function onTabShortcut(
+    handler: (shortcut: TabShortcut) => void
+): Promise<UnlistenFn> {
+    return listen<TabShortcut>('tab-shortcut', (event) => handler(event.payload));
+}
+
 export function openMenuWebview(rect: DOMRect): Promise<void> {
     return call('open_menu_webview', {...bounds(rect)});
 }

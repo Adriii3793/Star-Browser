@@ -15,7 +15,18 @@ pub fn run() {
     let _ = dotenvy::from_filename("../.env");
 
     tauri::Builder::default()
-    .plugin(tauri_plugin_window_state::Builder::default().build())
+    .plugin(
+        tauri_plugin_window_state::Builder::default()
+            // Never restore maximized/fullscreen on launch: undecorated
+            // windows that reopen full-screen have no visible way back to a
+            // resizable state (no native frame, no resize handles rendered
+            // while "squared"). Size/position are still remembered.
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::SIZE
+                    | tauri_plugin_window_state::StateFlags::POSITION,
+            )
+            .build(),
+    )
     .setup(|app| {
         let dir = app.path().app_data_dir()?;
         std::fs::create_dir_all(&dir)?;

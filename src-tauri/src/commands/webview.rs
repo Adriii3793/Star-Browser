@@ -15,6 +15,63 @@ struct TabUrlChanged {
     url: String,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TabShortcut {
+    tab_id: String,
+    action: String,
+}
+
+const SHORTCUT_TITLE_PREFIX: &str = "@@star-shortcut@@:";
+
+const SHORTCUT_FORWARD_SCRIPT: &str = r#"(function () {
+  var PREFIX = "@@star-shortcut@@:";
+
+  function resolveAction(e) {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
+    if (e.shiftKey) {
+      return (e.key === 'Delete' || e.key === 'Backspace') ? 'cleardata' : null;
+    }
+    var key = e.key.toLowerCase();
+    if (e.key === '=' || e.key === '+') return 'zoomin';
+    if (e.key === '-' || e.key === '_') return 'zoomout';
+    if (e.key === '0') return 'zoomreset';
+    if (key === 't') return 'newtab';
+    if (key === 'w') return 'closetab';
+    if (key === 'h') return 'history';
+    if (key === 'p') return 'print';
+    return null;
+  }
+
+  function signalViaTitle(signal) {
+    var original = document.title;
+    document.title = signal;
+    Promise.resolve().then(function () {
+      if (document.title === signal) document.title = original;
+    });
+  }
+
+  document.addEventListener('keydown', function (e) {
+    var action = resolveAction(e);
+    if (!action) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (window.top === window) {
+      signalViaTitle(PREFIX + action);
+    } else {
+      window.top.postMessage(PREFIX + action, '*');
+    }
+  }, true);
+
+  if (window.top === window) {
+    window.addEventListener('message', function (e) {
+      if (typeof e.data === 'string' && e.data.indexOf(PREFIX) === 0) {
+        signalViaTitle(e.data);
+      }
+    });
+  }
+})();"#;
+
 #[tauri::command]
 pub async fn open_tab_webview(
     app: AppHandle,
@@ -42,8 +99,11 @@ pub async fn open_tab_webview(
 
     let nav_app = app.clone();
     let nav_tab_id = tab_id.clone();
+    let shortcut_app = app.clone();
+    let shortcut_tab_id = tab_id.clone();
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
         .zoom_hotkeys_enabled(true)
+        .initialization_script_for_all_frames(SHORTCUT_FORWARD_SCRIPT)
         .on_navigation(move |url| {
             let _ = nav_app.emit(
                 "tab-url-changed",
@@ -53,15 +113,23 @@ pub async fn open_tab_webview(
                 },
             );
             true
+        })
+        .on_document_title_changed(move |_webview, title| {
+            if let Some(action) = title.strip_prefix(SHORTCUT_TITLE_PREFIX) {
+                let _ = shortcut_app.emit(
+                    "tab-shortcut",
+                    TabShortcut {
+                        tab_id: shortcut_tab_id.clone(),
+                        action: action.to_string(),
+                    },
+                );
+            }
         });
 
-    // macOS ships a Safari/WebKit WKWebView whose default User-Agent makes sites
-    // like Google serve a degraded/legacy layout. Present a modern Chrome UA so the
-    // rendered experience matches the Chromium-based WebView2 used on Windows.
     #[cfg(target_os = "macos")]
     let builder = builder.user_agent(
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
-         (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 \
+         (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
     );
 
     let main = app
@@ -109,7 +177,7 @@ pub async fn set_tab_bounds(
 
     if let Some(webview) = views.get(&label) {
         webview.set_position(LogicalPosition::new(x, y))?;
-        webview.set_size(LogicalSize::new(width, height))?;    
+        webview.set_size(LogicalSize::new(width, height))?;
     }
 
     Ok(())
@@ -126,7 +194,7 @@ pub async fn show_tab_webview(state: State<'_, AppState>, tab_id: String) -> Res
         }
         if *label == target {
             webview.show()?;
-        } 
+        }
         else {
             webview.hide()?;
         }

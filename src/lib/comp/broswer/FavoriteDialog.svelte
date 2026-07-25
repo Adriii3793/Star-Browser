@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { untrack } from 'svelte';
+
     let {
         title: initialTitle = '',
         url: initialUrl = '',
@@ -11,8 +13,10 @@
         oncancel: () => void;
     } = $props();
 
-    let title = $state(initialTitle);
-    let url = $state(initialUrl);
+    let title = $state(untrack(() => initialTitle));
+    let url = $state(untrack(() => initialUrl));
+
+    let error = $state('');
 
     function onkeydown(e: KeyboardEvent) {
         if (e.key === 'Escape') oncancel();
@@ -22,8 +26,24 @@
         e.preventDefault();
         const t = title.trim();
         let u = url.trim();
-        if (!t || !u) return;
+
+        if (!t) {
+            error = 'Please enter a name.';
+            return;
+        }
+        if (!u) {
+            error = 'Please enter a web address.';
+            return;
+        }
         if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+        try {
+            new URL(u);
+        } catch {
+            error = 'Please enter a valid web address.';
+            return;
+        }
+        error = '';
+
         onsave(t, u);
     }
 </script>
@@ -52,18 +72,22 @@
         aria-modal="true"
         aria-label="Edit favorite"
     >
-    <form onsubmit={submit}>
+    <form onsubmit={submit} novalidate>
         <h2>{initialTitle ? 'Edit Favorite' : 'Add Favorite'}</h2>
 
         <label class="field">
             <span>Name</span>
-            <input type="text" bind:value={title} placeholder="Name" maxlength="40" required />
+            <input type="text" bind:value={title} placeholder="Name" maxlength="40" oninput={() => (error = '')} />
         </label>
 
         <label class="field">
             <span>URL</span>
-            <input type="text" bind:value={url} placeholder="https://example.com" required />
+            <input type="text" bind:value={url} placeholder="https://example.com" oninput={() => (error = '')} />
         </label>
+
+        {#if error}
+        <p class="error" role="alert">{error}</p>
+        {/if}
 
         <div class="actions">
             <button type="button" class="btn ghost" onclick={oncancel}>Cancel</button>
@@ -127,6 +151,12 @@
 
     .field input:focus {
         border-color: var(--accent);
+    }
+
+    .error {
+        margin: 0;
+        font-size: 12px;
+        color: #c0392b;
     }
 
     .actions {
