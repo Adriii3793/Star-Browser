@@ -54,7 +54,7 @@
             onfocus={() => (focused = true)}
             onblur={() => (focused = false)}
             onkeydown={(e) => e.key === 'Enter' && onnavigate(value)}
-            placeholder="Search"
+            placeholder="Search with {setup.engine.name}"
         />
     </div>
 

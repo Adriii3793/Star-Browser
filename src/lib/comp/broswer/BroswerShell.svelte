@@ -4,6 +4,8 @@
     import WindowControls from './WindowControls.svelte';
     import Aipanel from '../ai/Aipanel.svelte';
     import  {history} from '$lib/stores/history.svelte';
+        import { ai } from '$lib/stores/ai.svelte';
+        import { memory } from '$lib/stores/memory.svelte';
     import {SvelteSet} from 'svelte/reactivity';
     import Settings from './Settings.svelte';
     import History from './History.svelte';
@@ -136,18 +138,21 @@
         return 'Good Night';
     }
 
+    function resetAllData() {
+        history.clear();
+        ai.reset();
+        memory.clear();
+    }
+
     let now = $state(new Date());
-    // Greets by the name chosen during onboarding, e.g. "Good Afternoon, Adri".
     let greeting = $derived(
         setup.data.name.trim()
             ? `${greetingFor(now)}, ${setup.data.name.trim()}`
             : greetingFor(now)
     );
 
-    // Applies the saved profile (search engine, name, theme) to the browser.
     setup.load();
 
-    // Home text flips to white over a dark background image so it stays legible.
     let homeText = $state('var(--text)');
     $effect(() => {
         const bg = setup.data.background;
@@ -201,7 +206,7 @@
     $effect (() => {
         for (const id of  openedViews) {
             const t = tabs.find((x) => x.id === id);
-            if (id === activeId && t?.hasNavigated) {
+            if (id === activeId && t?.hasNavigated && !showHistory && !showSettings) {
                 applyBounds(id);
                 showTabWebview(id);
             } else {
@@ -249,7 +254,7 @@
             if (action === 'newtab') newTab();
             else if (action === 'settings') showSettings = true;
             else if (action === 'history') showHistory = true;
-            else if (action === 'cleardata') history.clear();
+            else if (action === 'cleardata') resetAllData();
             else if (action === 'print') printActiveTab();
             else if (action === 'fullscreen') toggleFullscreen();
         });
@@ -272,7 +277,7 @@
             else if (action === 'closetab') closeTab(activeId);
             else if (action === 'history') showHistory = true;
             else if (action === 'print') printActiveTab();
-            else if (action === 'cleardata') history.clear();
+            else if (action === 'cleardata') resetAllData();
         });
         return () => {
             unlisten.then((off) => off());
@@ -442,7 +447,7 @@
 
         if (e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
             e.preventDefault();
-            history.clear();
+            resetAllData();
             return;
         }
 
@@ -500,6 +505,29 @@
         navPending.set(tab.id, Date.now());
         tabForward(tab.id);
     }
+
+        let addressBarEl = $state<HTMLElement>();
+    function focusAddressBar() {
+        const input = addressBarEl?.querySelector('input');
+        if (input) {
+            input.focus();
+            input.select();
+        }
+    }
+
+    $effect(() => {
+        const unlisten = listen<string>('global-shortcut', (e) => {
+            const action = e.payload;
+            if (action === 'newtab') newTab();
+            else if (action === 'closetab') closeTab(activeId);
+            else if (action === 'history') showHistory = true;
+            else if (action === 'print') printActiveTab();
+            else if (action === 'search') focusAddressBar();
+            else if (action === 'cleardata') history.clear();
+        });
+        return () => { unlisten.then((off) => off()); };
+    });
+
 </script>
 
 <svelte:window onkeydown={handleShortcuts} />

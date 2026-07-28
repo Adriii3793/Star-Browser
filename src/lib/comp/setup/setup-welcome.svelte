@@ -20,9 +20,6 @@
         justify-content: center;
         gap: 24px;
         height: 100%;
-        /* Without an explicit width this box is a shrink-to-fit flex item, so it
-           ends up only as wide as the tagline — and the logo's percentage width
-           below would resolve against that, capping it at ~210px. */
         width: 100%;
         max-width: 460px;
     }

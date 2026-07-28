@@ -109,7 +109,6 @@
         width: 100%;
     }
 
-    /* Cards fade up in sequence so the summary reads top-to-bottom. */
     .preview-card,
     .row-card,
     .cta {

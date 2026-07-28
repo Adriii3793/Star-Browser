@@ -16,7 +16,6 @@
     let textColor = $state('#1c1917');
     let error = $state<string | null>(null);
 
-    // Rebuilt from the store so an imported theme survives going back a step.
     let themes = $derived.by<Theme[]>(() => {
         const list = [...PRESET_THEMES];
         if (setup.data.customBg && setup.data.customSurface && setup.data.customAccent) {
@@ -35,7 +34,6 @@
     let active = $derived(themes.find((t) => t.id === setup.data.theme) ?? themes[0]);
     let engine = $derived(setup.engine);
 
-    // Text must stay legible over any preset colour or uploaded photo.
     $effect(() => {
         const bg = setup.data.background;
         if (bg) {
@@ -58,8 +56,6 @@
         const r = new FileReader();
         r.onload = () => {
             setup.data.background = String(r.result);
-            // An uploaded photo sits on top of whatever palette is selected,
-            // so keep a neutral surface rather than inventing colours.
             setup.data.theme = 'custom';
             setup.data.customBg ??= '#faf7f7';
             setup.data.customSurface ??= '#ffffff';
@@ -180,7 +176,6 @@
         margin: 0;
         font-size: 16px;
         font-weight: 600;
-        /* Keeps the greeting readable over busy photographs. */
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
     }
 

@@ -6,7 +6,6 @@ export interface SetupData {
     searchEngine: string;
     theme: string;
     background: string | null;
-    /** Custom theme colors, only set when the user imported a theme file. */
     customBg: string | null;
     customSurface: string | null;
     customAccent: string | null;
@@ -38,7 +37,6 @@ export const SEARCH_ENGINES: SearchEngine[] = [
     { id: 'bing', name: 'Bing', initial: 'B', color: '#008373', url: 'https://www.bing.com/search?q=' }
 ];
 
-// 'loading' and 'welcome' sit before the dotted progress indicator.
 export const STEPS = ['loading', 'welcome', 'profile', 'search', 'style', 'browser', 'review'] as const;
 export type Step = (typeof STEPS)[number];
 
@@ -48,14 +46,12 @@ export const DOT_COUNT = STEPS.length - FIRST_DOT_STEP;
 class SetupStore {
     step = $state<Step>('loading');
     data = $state<SetupData>({ ...DEFAULT_SETUP });
-    /** True once persisted settings have been read back from the database. */
     loaded = $state(false);
 
     get dotIndex() {
         return STEPS.indexOf(this.step) - FIRST_DOT_STEP;
     }
 
-    /** Mirrors the guard inside back() so the button can never disagree with it. */
     get canGoBack() {
         return STEPS.indexOf(this.step) > 1;
     }
@@ -64,7 +60,6 @@ class SetupStore {
         return SEARCH_ENGINES.find((e) => e.id === this.data.searchEngine) ?? SEARCH_ENGINES[0];
     }
 
-    /** Builds a search URL for the engine chosen during setup. */
     searchUrl(query: string): string {
         return this.engine.url + encodeURIComponent(query);
     }
@@ -83,13 +78,11 @@ class SetupStore {
         this.step = s;
     }
 
-    /** Reads persisted settings. Safe to call before the backend exists. */
     async load() {
         try {
             const saved = await loadSetup();
             if (saved) this.data = { ...DEFAULT_SETUP, ...saved };
         } catch {
-            // Backend unavailable: keep defaults rather than blocking startup.
         } finally {
             this.loaded = true;
         }

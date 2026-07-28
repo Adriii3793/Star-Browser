@@ -176,7 +176,6 @@
         color: var(--text-muted);
     }
 
-    /* Toggle switch built from a checkbox */
     .switch {
         appearance: none;
         -webkit-appearance: none;

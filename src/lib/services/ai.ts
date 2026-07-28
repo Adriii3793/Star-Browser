@@ -5,7 +5,6 @@ export type ContentPart =
     | { type: 'image_url'; image_url: { url: string } };
 
 export interface ChatMessage {
-    // 'system' added: this is where memory + page context get injected.
     role: 'user' | 'assistant' | 'system';
     content: string | ContentPart[];
 }

@@ -14,7 +14,6 @@
 			const img = new Image();
 			img.onload = () => resolve();
 			img.onerror = () => {
-				// A missing preset must not hang onboarding — skip and carry on.
 				console.warn('Preset avatar missing, skipping:', src);
 				resolve();
 			};
@@ -23,9 +22,6 @@
 	}
 
 	async function boot() {
-		// Real work only: preload every avatar the profile step can show, and
-		// read back any previously saved profile so setup resumes instead of
-		// restarting. Progress reflects these tasks, not a timer.
 		const tasks: Promise<unknown>[] = [...PRESET_AVATARS.map(preloadImage), setup.load()];
 
 		total = tasks.length;

@@ -42,7 +42,6 @@
     try {
       setupDone = await invoke('is_setup_complete');
     } catch (e) {
-      // Never trap the user on a blank screen if the backend call fails.
       console.warn('is_setup_complete is not available', e);
       setupDone = true;
     }
@@ -107,6 +106,8 @@
     width: 100vw;
     overflow: hidden;
     background: var(--bg-chrome);
+    border-radius: 0;
+    transition: border-radius 0.18s ease;
   }
 
   .app.rounded {

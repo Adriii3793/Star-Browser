@@ -1,4 +1,3 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod commands;
 mod db;
 mod error;
@@ -17,10 +16,6 @@ pub fn run() {
     tauri::Builder::default()
     .plugin(
         tauri_plugin_window_state::Builder::default()
-            // Never restore maximized/fullscreen on launch: undecorated
-            // windows that reopen full-screen have no visible way back to a
-            // resizable state (no native frame, no resize handles rendered
-            // while "squared"). Size/position are still remembered.
             .with_state_flags(
                 tauri_plugin_window_state::StateFlags::SIZE
                     | tauri_plugin_window_state::StateFlags::POSITION,
@@ -37,6 +32,19 @@ pub fn run() {
         db: pool,
         views: Mutex::new(HashMap::new()),
     });
+    let handle = app.handle().clone();
+    app.global_shortcut().on_shortcut_event(move |_app, shortcut, event| {
+        if event.state != ShortcutState::Pressed { return; }
+        for (s, action) in shortcut_bindings() {
+            if s == *shortcut {
+                let _ = handle.emit("global-shortcut", action);
+                break;
+            }
+        }
+    });
+    for (s, _) in shortcut_bindings() {
+        let _ = app.global_shortcut().register(s);
+    }
 
     Ok(())
     })

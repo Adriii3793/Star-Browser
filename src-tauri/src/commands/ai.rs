@@ -14,7 +14,6 @@ const MODEL: &str = "google/gemma-4-26b-a4b-it:free";
 const AI_TIMEOUT: Duration = Duration::from_secs(90);
 const AI_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Shared client: reuses the connection pool instead of rebuilding TLS per call.
 fn http_client() -> Result<&'static reqwest::Client, AppError> {
     static CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
     CLIENT

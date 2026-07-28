@@ -14,8 +14,6 @@
 
     async function finish() {
         saving = true;
-        // Persist before handing over; if the backend is unavailable the user
-        // still gets into the browser rather than being stuck on onboarding.
         await setup.save();
         saving = false;
         oncomplete();
@@ -133,10 +131,6 @@
 
     .stage {
         display: flex;
-        /* Deliberately flex-start, not center: with align-items:center an
-           overflowing step spills ABOVE the scroll origin, so its heading can
-           never be scrolled into view. The auto margin below re-centres it
-           whenever there is spare room, and collapses to 0 when there isn't. */
         align-items: flex-start;
         justify-content: center;
         flex: 1;
@@ -147,8 +141,6 @@
 
     .stage > :global(*) {
         margin: auto;
-        /* Each step is a fresh element, so this replays on every navigation and
-           gives the wizard a sense of forward motion. */
         animation: step-in 250ms ease-in-out;
     }
 

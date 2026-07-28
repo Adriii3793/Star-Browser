@@ -40,6 +40,7 @@ const SHORTCUT_FORWARD_SCRIPT: &str = r#"(function () {
     if (key === 'w') return 'closetab';
     if (key === 'h') return 'history';
     if (key === 'p') return 'print';
+        if (key === 'k') return 'search';
     return null;
   }
 

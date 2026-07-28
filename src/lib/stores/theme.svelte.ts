@@ -13,7 +13,6 @@ export const PRESET_THEMES: Theme[] = [
     { id: 'sand', name: 'Sand', bg: '#f2e8dc', surface: '#fdf9f4', accent: '#b8763f' }
 ];
 
-/** WCAG relative luminance, 0 (black) to 1 (white). */
 export function luminance(hex: string): number {
     const h = hex.replace('#', '').trim();
     const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
@@ -23,12 +22,10 @@ export function luminance(hex: string): number {
     return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
-/** Picks black or white text, whichever contrasts more against the background. */
 export function readableText(bgHex: string): string {
     return luminance(bgHex) > 0.5 ? '#1c1917' : '#ffffff';
 }
 
-/** Average luminance of an image, so text can adapt to a custom background. */
 export function imageLuminance(dataUrl: string): Promise<number> {
     return new Promise((resolve) => {
         const img = new Image();
@@ -55,13 +52,6 @@ export function imageLuminance(dataUrl: string): Promise<number> {
     });
 }
 
-/**
- * Validates an imported theme file.
- *
- * Remote image URLs are rejected on purpose: a theme pointing at https://…
- * would fetch from that server every time the home page renders, leaking the
- * user's activity to whoever published the theme. Inline data: URIs only.
- */
 export function parseTheme(raw: string): Theme | null {
     try {
         const t = JSON.parse(raw);
