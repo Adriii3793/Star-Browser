@@ -157,6 +157,7 @@
         cursor: pointer;
     }
 
+
     .rowtext {
         display: flex;
         flex-direction: column;

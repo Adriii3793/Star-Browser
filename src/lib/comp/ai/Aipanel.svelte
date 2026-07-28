@@ -2,8 +2,15 @@
 	import { ai } from '$lib/stores/ai.svelte';
 	import type { ChatMessage, ContentPart } from '$lib/services/ai';
 	import Loading from '../ui/Loading.svelte';
-
-	let { username = 'there', onclose }: { username?: string; onclose: () => void } = $props();
+	import {memory} from '$lib/stores/memory.svelte';
+	import { fetchPageContext } from '$lib/services/ai';
+    import { page } from '$app/state';
+	let showMemory = $state(false);
+	let memoryDraft = $state('');
+	let memoryFileEl = $state<HTMLInputElement>();
+	let toast = $state<string | null>(null);
+	let toastTimer: ReturnType<typeof setTimeout> | undefined;
+	let { username = 'there', pageUrl = null, onclose }: { username?: string; pageUrl?: string | null; onclose: () => void } = $props();
 
 	let draft = $state('');
 	let listEl = $state<HTMLElement>();
@@ -11,6 +18,11 @@
 	let dragActive = $state(false);
 	let dragDepth = 0;
 	let attachments = $state<Array<{ type: 'image' | 'video' | 'text'; data: string; name: string }>>([]);
+	const PANEL_MIN = 300;
+	const PANEL_MAX = 720;
+	const WIDTH_KEY = 'ai_panel_width';
+	let panelWidth = $state(loadPanelWidth());
+	let resizing = $state(false);
 	let showHistory = $state(false);
 	const HISTORY_KEY = 'ai_chat_history';
 	type ChatEntry = { id: string; title: string; messages: typeof ai.messages; timestamp: number };
@@ -25,6 +37,74 @@
 		void ai.messages.length;
 		listEl?.scrollTo({ top: listEl.scrollHeight, behavior: 'smooth' });
 	});
+
+	function showToast(msg: string) {
+		toast = msg;
+		clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => (toast = null), 6000);
+	}
+
+	function loadPanelWidth(): number {
+		const v = Number(localStorage.getItem(WIDTH_KEY));
+		return Number.isFinite(v) && v>= PANEL_MIN && v <= PANEL_MAX?v: 340;
+		
+	}
+
+	function startResize(e: PointerEvent) {
+		e.preventDefault();
+		resizing = true;
+		const startX = e.clientX;
+		const startW = panelWidth;
+		const onMove = (ev: PointerEvent) => {
+			panelWidth = Math.max(PANEL_MIN, Math.min(PANEL_MAX, startW + (startX - ev.clientX)));
+
+		};
+		const onUp = () => {
+			resizing = false;
+			localStorage.setItem(WIDTH_KEY, String(panelWidth));
+			window.removeEventListener('pointermove', onMove);
+			window.removeEventListener('pointerup', onUp);
+		};
+		window.addEventListener('pointermove', onMove);
+		window.addEventListener('pointerup', onUp);
+	}
+
+	function toggleMemory() { 
+		showMemory =!showMemory;
+		if (showMemory) showHistory = false;
+	}
+	function addMemory() {
+		if (memory.add(memoryDraft)) memoryDraft = '';
+		else if (memory.lastError) showToast(memory.lastError);
+	}
+	function exportMemory() {
+		const blob = new Blob([memory.export()], {type: 'text/markdown'});
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'ai-memory.md';
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		setTimeout(() => URL.revokeObjectURL(url),10_000);
+		showToast('Saved ai-memory.md to your Downloads folder');
+	}
+	function importMemory(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		const reader = new FileReader();
+		reader.onload = () => {
+			const r = memory.import(String(reader.result ?? ''), 'merge');
+			const bits = [`Imported ${r.added}`];
+			if (r.duplicates) bits.push(`${r.duplicates} duplicate(s) skipped`);
+			if (r.rejected.length) bits.push(`${r.rejected.length} blocked`);
+			showToast(bits.join(' · '));
+			if (r.rejected.length) console.warn('Blocked memory entries:', r.rejected);
+		};
+		reader.readAsText(file);
+	}
 
 	function loadHistoryFromStorage(): ChatEntry[] {
 		try {
@@ -87,15 +167,35 @@
 		}
 	}
 
+
+	let cachedPage: {url:string;data:any} | null = null;
+
+	async function currentPage() {
+		if (!pageUrl) {console.warn('currentPage: pageUrl is null'); return null;}
+		if (cachedPage?.url === pageUrl) return cachedPage.data
+		try {
+			const data = await fetchPageContext(pageUrl);
+			cachedPage = { url: pageUrl, data};
+			return data;
+		} catch (e) {
+			console.error('fetch_page_context failed:', e);
+			return null;
+		}
+		
+	}
+
 	async function submit() {
 		const text = draft.trim();
 		if (!text && attachments.length === 0) return;
+
+
+
 		const files = attachments;
 		draft = '';
 		attachments = [];
 
 		if (files.length === 0) {
-			await ai.send(text);
+			await ai.send(text, await currentPage());
 		} else {
 			const parts: ContentPart[] = [];
 			if (text) parts.push({ type: 'text', text });
@@ -112,13 +212,17 @@
 					parts.push({ type: 'text', text: `[attached video: ${file.name}]` });
 				}
 			}
-			await ai.send(parts);
+			await ai.send(parts, await currentPage());
 		}
 		saveCurrentChat();
 	}
 
 	async function sendPrompt(prompt: string) {
-		await ai.send(prompt);
+		let page = null;
+		if (pageUrl) {
+			try { page = await fetchPageContext(pageUrl); } catch {}
+		}
+		await ai.send(prompt,page);
 		saveCurrentChat();
 	}
 
@@ -235,12 +339,14 @@
 
 <aside
 	class="panel"
+	style="width:{panelWidth}px"
 	class:drag-active={dragActive}
 	ondragenter={handleDragEnter}
 	ondragover={handleDragOver}
 	ondragleave={handleDragLeave}
 	ondrop={handleDrop}
 >
+<div class="resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize panel" onpointerdown={startResize}></div>
 	<header class="head">
 		<div class="group">
 			<button class="icon" aria-label="AI Panel" type="button">
@@ -259,6 +365,12 @@
 					<path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5" />
 				</svg>
 			</button>
+			<button class="icon" aria-label="AI Memory" type="button" onclick={toggleMemory}>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 3a3 3 0 0 0 -3 3v0a3 3 0 0 0 -3 3a3 3 0 0 0 1.5 2.6M9 3a3 3 0 0 1 6 0M9 3v18" />
+        <path d="M15 3a3 3 0 0 1 3 3a3 3 0 0 1 3 3a3 3 0 0 1 -1.5 2.6M15 21v-9" />
+    </svg>
+</button>
 			<button class="icon" aria-label="More" type="button">
 				<svg viewBox="0 0 24 24" aria-hidden="true">
 					<circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" />
@@ -270,6 +382,41 @@
 		</div>
 	</header>
 
+	{#if showMemory} 
+	<div class="history-panel">
+		<div class="history-header">
+			<h3>AI memory</h3>
+			<div class="group">
+				<button class="clear-btn" type="button" title="Import" onclick={() => memoryFileEl?.click()}>⤓</button>
+                <button class="clear-btn" type="button" title="Export" onclick={exportMemory}>⤒</button>
+                <button class="clear-btn" type="button" title="Clear all" onclick={() => memory.clear()}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" /></svg>
+                </button>
+			</div>
+		</div>
+		<div class="history-list">
+			{#if memory.items.length === 0}
+			<p class="empty-history">Nothing here..</p>
+			{:else}
+			{#each memory.items as m (m.id)}
+				<div class="history-item" style="flex-direction: row; align-items: center; justify-content:space-between;">
+					<span class="history-title">{m.text}</span>
+					<button class="clear-btn" type="button" title="Forget" onclick={() => memory.remove(m.id)}>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+				</div>
+				{/each}
+			{/if}
+		</div>
+	</div>
+	  <div style="display:flex;gap:6px;padding:8px;">
+            <input style="flex:1;border:1px solid rgba(0,0,0,0.1);border-radius:8px;padding:6px 8px;font:inherit;font-size:12px;"
+                placeholder="Add something to remember…" bind:value={memoryDraft}
+                onkeydown={(e) => e.key === 'Enter' && addMemory()} />
+            <button class="tool send" type="button" onclick={addMemory} aria-label="Save memory">＋</button>
+        </div>
+    <input type="file" accept=".md,.markdown,.json,.txt" bind:this={memoryFileEl} onchange={importMemory} style="display:none" />
+{/if}
 	{#if showHistory}
 		<div class="history-panel">
 			<div class="history-header">
@@ -304,12 +451,6 @@
 			<div class="hero">
 				<h1>Hello {username}, what's on your mind?</h1>
 			</div>
-
-			<button class="identity" type="button">
-				<span>OpenRouter</span>
-				<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-			</button>
-
 			<div class="prompts">
 				{#each prompts as prompt (prompt)}
 					<button class="chip" type="button" onclick={() => sendPrompt(prompt)}>{prompt}</button>
@@ -400,13 +541,35 @@
 		onchange={handleFileSelect}
 		style="display: none"
 	/>
+
+	{#if toast}
+		<div class="toast" role="status">{toast}</div>
+	{/if}
+	{#if ai.lastMemoryNote}
+		<div class="toast subtle" role="status">{ai.lastMemoryNote}</div>
+	{/if}
 </aside>
 
 <style>
+
+	.toast {
+		margin: 0 8px 8px;
+		padding: 8px 12px;
+		border-radius: 10px;
+		background: var(--text, #4a3a2e);
+		color: #fff;
+		font-size: 12px;
+		line-height: 1.35;
+	}
+	.toast.subtle {
+		background: var(--field, #f7f1ec);
+		color: var(--text-soft, #8a6b57);
+	}
 	.panel {
+		position: relative;
+		flex: 0 0 auto;
 		display: flex;
 		flex-direction: column;
-		width: 340px;
 		margin: 0 8px 8px 0;
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		border-radius: 16px;
@@ -421,6 +584,22 @@
 			'Segoe UI',
 			sans-serif;
 		transition: border-color 0.2s ease;
+	}
+	.resize-handle {
+		position: absolute;
+		top:0;
+		left: -3px;
+		width: 8px;
+		height: 100%;
+		z-index: 5;
+		cursor: ew-resize;
+		touch-action: none;
+	}
+	.resize-handle:hover {
+		background: linear-gradient(to right, transparent, rgba(232, 115, 74, 0.18));
+	}
+	.panel.resizing {
+		user-select: none;
 	}
 
 	.panel.drag-active {
@@ -481,31 +660,6 @@
 		line-height: 1.2;
 		color: var(--text, #4a3a2e);
 		text-align: left;
-	}
-
-	.identity {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		align-self: flex-start;
-		padding: 8px 16px;
-		border: 0;
-		border-radius: 16px;
-		background: var(--field, #f7f1ec);
-		color: var(--text-soft, #8a6b57);
-		font: inherit;
-		font-size: 13px;
-		font-weight: 500;
-		cursor: default;
-	}
-	.identity svg {
-		width: 14px;
-		height: 14px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 2;
-		stroke-linecap: round;
-		stroke-linejoin: round;
 	}
 
 	.prompts {

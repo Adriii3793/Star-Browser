@@ -21,6 +21,8 @@
         const unlistenPosition = listen<{ x: number; y: number }>('menu-position', (e) => {
             anchor = e.payload;
         });
+
+        Promise.all([unlistenZoom, unlistenPosition]).then(() => emit('menu-ready', {}));
         return () => {
             unlistenZoom.then((off) => off());
             unlistenPosition.then((off) => off());

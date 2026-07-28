@@ -34,6 +34,8 @@
     import { onMount } from 'svelte';
     import { platform as detectPlatform } from '@tauri-apps/plugin-os';
     import { windowChrome } from '$lib/stores/windowChrome.svelte';
+    import { setup } from '$lib/stores/setup.svelte';
+    import { imageLuminance } from '$lib/stores/theme.svelte';
     interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number; favicon?: string;}
     type OS = 'macos' | 'windows' | 'linux';
     let os = $state<OS>('windows');
@@ -135,7 +137,26 @@
     }
 
     let now = $state(new Date());
-    let greeting = $derived(greetingFor(now));
+    // Greets by the name chosen during onboarding, e.g. "Good Afternoon, Adri".
+    let greeting = $derived(
+        setup.data.name.trim()
+            ? `${greetingFor(now)}, ${setup.data.name.trim()}`
+            : greetingFor(now)
+    );
+
+    // Applies the saved profile (search engine, name, theme) to the browser.
+    setup.load();
+
+    // Home text flips to white over a dark background image so it stays legible.
+    let homeText = $state('var(--text)');
+    $effect(() => {
+        const bg = setup.data.background;
+        if (!bg) {
+            homeText = 'var(--text)';
+            return;
+        }
+        imageLuminance(bg).then((l) => (homeText = l > 0.5 ? '#1c1917' : '#ffffff'));
+    });
 
     $effect(() => {
         const timer = setInterval(() => (now = new Date()), 60_000);
@@ -189,6 +210,13 @@
         }
     });
 
+    let menuAnchor = {x:6,y: 44};
+
+    function sendMenuState() {
+        emit('menu-position', menuAnchor);
+        emit('menu-zoom-sync', {zoom: Math.round((activeTab?.zoom ?? 1) *100)});
+    }
+
     async function openMenu() {
         if (menuOpen) {
             closeMenu();
@@ -196,15 +224,14 @@
         }
         const MENU_WIDTH = 300;
         const btn = menuBtnEl?.getBoundingClientRect();
-        const anchorX = btn
-        ? Math.max(6, Math.min(btn.left, window.innerWidth - MENU_WIDTH - 6))
-        : 6;
-        const anchorY = btn ? btn.bottom + 6 : 44;
+        menuAnchor = {
+            x: btn ? Math.max(6, Math.min(btn.left, window.innerWidth - MENU_WIDTH - 6)) : 6,
+            y: btn ? btn.bottom +6 : 44
+        };
         const rect = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
         menuOpen = true;
         await openMenuWebview(rect);
-        emit('menu-position', { x: anchorX, y: anchorY });
-        emit('menu-zoom-sync', { zoom: Math.round((activeTab?.zoom ?? 1) * 100) });
+       sendMenuState();
     }
 
     function closeMenu() {
@@ -227,9 +254,11 @@
             else if (action === 'fullscreen') toggleFullscreen();
         });
         const unlistenClose = listen('menu-close', () => closeMenu());
+        const unlistenReady = listen('Menu-ready', () => sendMenuState());
         return () => {
             unlistenAction.then((off) => off());
             unlistenClose.then((off) => off());
+            unlistenReady.then((off) => off());
         };
     });
 
@@ -366,8 +395,8 @@
         if (!tab || !input.trim()) return;
         const isUrl = input.includes('.') && !input.includes(' ');
         const url = isUrl
-            ? (input.startsWith('http') ? input :`https://${input}`)
-            : `https://www.google.com/search?q=${encodeURIComponent(input)}`;
+            ? (/^https?:\/\//i.test(input) ? input : `https://${input}`)
+            : setup.searchUrl(input);
             tab.hist = tab.hist.slice(0, tab.cursor +1 );
             tab.hist.push(url);
             tab.cursor = tab.hist.length -1;
@@ -528,6 +557,7 @@
             canForward={(activeTab?.cursor ?? -1) < (activeTab?.hist.length ?? 0) - 1}
             onnewtab={newTab}
             onsettings={() => (showSettings = true)}
+            onprofile={() => (showSettings = true)}
         />
     {/key}
 
@@ -546,7 +576,15 @@
                 <code>{activeTab.url}</code>
             </div>
             {:else}
-            <div class="home" style="zoom: {activeTab?.zoom ?? 1}">
+            <div
+                class="home"
+                class:has-bg={!!setup.data.background}
+                style="zoom: {activeTab?.zoom ?? 1};
+                       {setup.data.background
+                           ? `background-image:url(${setup.data.background});`
+                           : ''}
+                       --home-text:{homeText};"
+            >
                 <div class="home-inner">
                     <h1 class="greeting">{greeting}</h1>
 
@@ -621,7 +659,10 @@
         </div>
 
         {#if showChat}
-        <Aipanel onclose={() => (showChat = false)} />
+        <Aipanel 
+            pageUrl={activeTab?.hasNavigated ? (activeTab?.url ?? null) : null}
+            onclose={() => (showChat = false)} 
+        />
         {/if}
     </div>
 </div>
@@ -713,6 +754,34 @@
         flex: 1;
         overflow-y: auto;
         padding: 48px 32px 56px;
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+    }
+
+    /* Over a photo, tiles need their own surface and the text needs a shadow,
+       otherwise both disappear into whatever the image happens to be. */
+    .home.has-bg .greeting,
+    .home.has-bg .section h2 {
+        color: var(--home-text);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    }
+
+    .home.has-bg .fav-icon,
+    .home.has-bg .recent {
+        background: rgba(255, 255, 255, 0.86);
+        backdrop-filter: blur(6px);
+    }
+
+    .home.has-bg .fav-title {
+        color: var(--home-text);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    }
+
+    .home.has-bg .editbtn {
+        background: rgba(255, 255, 255, 0.86);
+        backdrop-filter: blur(6px);
+        color: var(--text);
     }
 
     .home-inner {

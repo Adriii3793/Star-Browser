@@ -1,6 +1,8 @@
 <script lang="ts">
+    import { setup } from '$lib/stores/setup.svelte';
+
     let { url = '', onnavigate, onchat, onback, onforward, onreload,
-        onnewtab, onsettings, onhistory, canBack = false, canForward = false
+        onnewtab, onsettings, onhistory, onprofile, canBack = false, canForward = false
     }:
         {
             url?: string;
@@ -12,6 +14,7 @@
             onnewtab?: () => void;
             onsettings?: () => void;
             onhistory?: () => void;
+            onprofile?: () => void;
             canBack?: boolean;
             canForward?: boolean;
         } = $props();
@@ -21,6 +24,9 @@
     $effect(() => {
         if (!focused) value = url;
     });
+
+    let name = $derived(setup.data.name.trim());
+    let initial = $derived((name[0] ?? '?').toUpperCase());
 </script>
 
 <div class="navbar">
@@ -53,11 +59,24 @@
     </div>
 
     <div class="actions">
+        {#if name}
+            <button class="profile" type="button" title="Profile settings" onclick={onprofile}>
+                <span class="pfp">
+                    {#if setup.data.avatar}
+                        <img src={setup.data.avatar} alt="" />
+                    {:else}
+                        {initial}
+                    {/if}
+                </span>
+                <span class="pname">Ciao {name}!</span>
+            </button>
+        {/if}
+
         <button class="chat" onclick={onchat}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z" />
             </svg>
-            Chat 
+            Chat
         </button>
     </div>
 </div>
@@ -114,11 +133,64 @@
         }
 
         .actions {
-            position: relative; 
+            position: relative;
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 8px;
             flex: 0 0 auto;
+        }
+
+        .profile {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            max-width: 190px;
+            padding: 5px 14px 5px 5px;
+            border: none;
+            border-radius: 999px;
+            background: #fff;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text);
+            cursor: pointer;
+            transition: background-color 0.14s ease;
+        }
+
+        .profile:hover {
+            background: var(--tab-hover);
+        }
+
+        .pfp {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 700;
+            overflow: hidden;
+        }
+
+        .pfp img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .pname {
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .profile { transition: none; }
         }
         
     </style>

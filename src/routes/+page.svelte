@@ -42,6 +42,7 @@
     try {
       setupDone = await invoke('is_setup_complete');
     } catch (e) {
+      // Never trap the user on a blank screen if the backend call fails.
       console.warn('is_setup_complete is not available', e);
       setupDone = true;
     }
@@ -70,7 +71,7 @@
       {#if setupDone === null}
         <p class="loading">Loading</p>
       {:else}
-        <Setup />
+        <Setup oncomplete={() => (setupDone = true)} />
       {/if}
     </main>
   {:else}

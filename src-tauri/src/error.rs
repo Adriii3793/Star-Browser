@@ -31,6 +31,18 @@ pub enum AppError {
 
     #[error("error in the AI request")]
     AiRequest,
+
+    #[error("the AI took too long to respond. Please try again")]
+    AiTimeout,
+
+    #[error("could not read this page")]
+    PageFetch,
+
+    #[error("could not save your setup")]
+    SetupSerialize,
+
+    #[error("could not open the default-apps settings")]
+    DefaultBrowser,
 }
 
 impl Serialize for AppError {

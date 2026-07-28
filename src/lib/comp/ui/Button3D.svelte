@@ -28,13 +28,13 @@
 <style>
     .pushable {
         position: relative;
-        background: trasparent;
+        background: transparent;
         padding: 0;
         border: none;
         cursor: pointer;
         outline-offset: 4px;
         transition: filter 250ms;
-        -webkit_tap-hightlight-color: #00000000;
+        -webkit-tap-highlight-color: #00000000;
 
     }
     .pushable:disabled {
@@ -53,7 +53,7 @@
         filter: blur(4px);
         will-change: transform;
         transform: translateY(2px);
-        transition: transform 600ms cubic-bazier(.3, .7, .4, 1);
+        transition: transform 600ms cubic-bezier(.3, .7, .4, 1);
 
     }
 
@@ -64,7 +64,7 @@
         height:100%;
         width:100%;
         border-radius: 12px;
-        background: color-mix(in srgb, var(--surface) 60%, black);
+        background: color-mix(in srgb, var(--accent, #37373f) 60%, black);
     }
     .front {
         display: block;
@@ -86,7 +86,7 @@
     }
     .pushable:hover:not(:disabled) .front {
         transform: translateY(-6px);
-        transition: transfom 250ms cubic-bezier(.3, .7, .4, 1.5);
+        transition: transform 250ms cubic-bezier(.3, .7, .4, 1.5);
     }
 
     .pushable:active:not(:disabled) .front {
@@ -98,7 +98,7 @@
 
     .pushable:hover:not(:disabled) .shadow {
         transform: translateY(4px);
-        transition: transform 250ms cubic-bezier(.3, .7, .4, .1.5);
+        transition: transform 250ms cubic-bezier(.3, .7, .4, 1.5);
     }
     .pushable:active:not(:disabled) .shadow {
         transform: translateY(1px);

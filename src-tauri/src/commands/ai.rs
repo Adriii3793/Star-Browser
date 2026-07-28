@@ -1,4 +1,5 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::State;
@@ -9,6 +10,24 @@ use crate::state::AppState;
 const DAILY_LIMIT: i64 = 50;
 const WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 const MODEL: &str = "google/gemma-4-26b-a4b-it:free";
+
+const AI_TIMEOUT: Duration = Duration::from_secs(90);
+const AI_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Shared client: reuses the connection pool instead of rebuilding TLS per call.
+fn http_client() -> Result<&'static reqwest::Client, AppError> {
+    static CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(AI_TIMEOUT)
+                .connect_timeout(AI_CONNECT_TIMEOUT)
+                .build()
+                .ok()
+        })
+        .as_ref()
+        .ok_or(AppError::AiRequest)
+}
 
 fn api_key() -> Result<String, AppError> {
     std::env::var("OPENROUTER_API_KEY").map_err(|_| AppError::MissingApiKey)
@@ -96,14 +115,14 @@ pub async fn ai_chat(
         messages,
     };
 
-    let response = reqwest::Client::new()
+    let response = http_client()?
         .post("https://openrouter.ai/api/v1/chat/completions")
         .header("Authorization", format!("Bearer {key}"))
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
         .await
-        .map_err(|_| AppError::AiRequest)?;
+        .map_err(|e| if e.is_timeout() { AppError::AiTimeout } else { AppError::AiRequest })?;
 
     if !response.status().is_success() {
         return Err(AppError::AiRequest);
