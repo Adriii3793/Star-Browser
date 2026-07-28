@@ -41,6 +41,17 @@ export function onTabUrlChanged(
     return listen<TabUrlChanged>('tab-url-changed', (event) => handler(event.payload));
 }
 
+export interface TabTitleChanged {
+    tabId: string;
+    title: string;
+}
+
+export function onTabTitleChanged(
+    handler: (change: TabTitleChanged) => void
+): Promise<UnlistenFn> {
+    return listen<TabTitleChanged>('tab-title-changed', (event) => handler(event.payload));
+}
+
 export interface TabShortcut {
     tabId: string;
     action: string;
@@ -58,6 +69,15 @@ export function openMenuWebview(rect: DOMRect): Promise<void> {
 
 export function closeMenuWebview(): Promise<void> {
     return call('close_menu_webview', {});
+}
+
+/** Full-window surface that hosts Settings/History above the page webview. */
+export function openOverlayWebview(rect: DOMRect): Promise<void> {
+    return call('open_overlay_webview', {...bounds(rect)});
+}
+
+export function closeOverlayWebview(): Promise<void> {
+    return call('close_overlay_webview', {});
 }
 
 export function tabBack(tabId: string): Promise<void> {

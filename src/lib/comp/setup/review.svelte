@@ -237,7 +237,7 @@
 
     .avatar {
         border-radius: 50%;
-        background: var(--accent, #e8734a);
+        background: var(--accent, #80A4D4);
         font-size: 16px;
     }
 
@@ -281,7 +281,7 @@
         padding: 8px;
         border: none;
         background: none;
-        color: var(--accent, #e8734a);
+        color: var(--accent, #80A4D4);
         font: inherit;
         font-size: 13px;
         font-weight: 600;
@@ -291,11 +291,11 @@
     }
 
     .change:hover {
-        background: rgba(232, 115, 74, 0.1);
+        background: rgba(128, 164, 212, 0.1);
     }
 
     .change:focus-visible {
-        outline: 2px solid var(--accent, #e8734a);
+        outline: 2px solid var(--accent, #80A4D4);
         outline-offset: 2px;
     }
 

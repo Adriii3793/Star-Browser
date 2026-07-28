@@ -126,7 +126,7 @@
     }
 
     .dot.active {
-        background: var(--accent, #e8734a);
+        background: var(--accent, #80A4D4);
     }
 
     .stage {

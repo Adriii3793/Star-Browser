@@ -135,7 +135,7 @@
         opacity: 0.65;
 	}
 	.new:hover {
-		background: rgba(0, 0, 0, 0.06);
+		background: var(--hover);
 	}
 
     .new:focus-visible {

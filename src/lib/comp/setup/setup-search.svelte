@@ -118,8 +118,8 @@
     }
 
     .radio.on {
-        background: var(--accent, #e8734a);
-        border-color: var(--accent, #e8734a);
+        background: var(--accent, #80A4D4);
+        border-color: var(--accent, #80A4D4);
     }
 
     .radio svg {

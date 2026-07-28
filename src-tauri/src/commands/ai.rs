@@ -29,7 +29,20 @@ fn http_client() -> Result<&'static reqwest::Client, AppError> {
 }
 
 fn api_key() -> Result<String, AppError> {
-    std::env::var("OPENROUTER_API_KEY").map_err(|_| AppError::MissingApiKey)
+    // A runtime variable always wins, so a packaged build can still be pointed at a
+    // different key without rebuilding.
+    if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+        if !key.trim().is_empty() {
+            return Ok(key.trim().to_string());
+        }
+    }
+
+    // Otherwise fall back to the key build.rs baked in. Installed builds have no .env
+    // next to them, which is why this is needed at all.
+    match option_env!("STAR_EMBEDDED_API_KEY") {
+        Some(key) if !key.trim().is_empty() => Ok(key.trim().to_string()),
+        _ => Err(AppError::MissingApiKey),
+    }
 }
 
 fn now_millis() -> i64 {

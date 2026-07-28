@@ -6,22 +6,36 @@ mod state;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::Manager;
-
+use tauri::Emitter;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use state::AppState;
+
+fn shortcut_bindings() -> Vec<(Shortcut, &'static str)> {
+    vec![
+        ("ctrl+shift+t".parse().unwrap(), "new-tab"),        
+        ("ctrl+shift+h".parse().unwrap(), "show-history"),
+        ("ctrl+shift+s".parse().unwrap(), "open-ai-chat"),
+    ]
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Dev convenience only: this relative path resolves when running from src-tauri/.
+    // Installed builds get the key from the value build.rs embedded (see commands::ai).
     let _ = dotenvy::from_filename("../.env");
+    let _ = dotenvy::dotenv();
 
     tauri::Builder::default()
-    .plugin(
-        tauri_plugin_window_state::Builder::default()
-            .with_state_flags(
-                tauri_plugin_window_state::StateFlags::SIZE
-                    | tauri_plugin_window_state::StateFlags::POSITION,
-            )
-            .build(),
-    )
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
     .setup(|app| {
         let dir = app.path().app_data_dir()?;
         std::fs::create_dir_all(&dir)?;
@@ -33,17 +47,17 @@ pub fn run() {
         views: Mutex::new(HashMap::new()),
     });
     let handle = app.handle().clone();
-    app.global_shortcut().on_shortcut_event(move |_app, shortcut, event| {
-        if event.state != ShortcutState::Pressed { return; }
-        for (s, action) in shortcut_bindings() {
-            if s == *shortcut {
-                let _ = handle.emit("global-shortcut", action);
-                break;
+    for (shortcut, action) in shortcut_bindings() {
+        let action = action.to_string();
+        let shortcut_for_handler = shortcut.clone();
+        let handle_for_event = handle.clone();
+        let _ = app.global_shortcut().on_shortcut(shortcut_for_handler, move |_app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
             }
-        }
-    });
-    for (s, _) in shortcut_bindings() {
-        let _ = app.global_shortcut().register(s);
+            let _ = handle_for_event.emit("global-shortcut", action.as_str());
+        });
+        let _ = app.global_shortcut().register(shortcut);
     }
 
     Ok(())
@@ -61,6 +75,8 @@ pub fn run() {
         commands::webview::close_tab_webview,
         commands::webview::open_menu_webview,
         commands::webview::close_menu_webview,
+        commands::webview::open_overlay_webview,
+        commands::webview::close_overlay_webview,
         commands::ai::usage_status,
         commands::ai::ai_chat,
         commands::page::fetch_page_context,

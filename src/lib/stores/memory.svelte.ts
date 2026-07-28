@@ -70,7 +70,7 @@ class MemoryStore {
     forget(phrase: string): number {
         const doomed = new Set(this.matches(phrase).map((m) => m.id));
         if (doomed.size === 0) return 0;
-        this.items = this.items.filter((m) => doomed.has(m.id));
+        this.items = this.items.filter((m) => !doomed.has(m.id));
         this.#persist();
         return doomed.size;
     }

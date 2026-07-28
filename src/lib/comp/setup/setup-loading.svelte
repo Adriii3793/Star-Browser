@@ -70,7 +70,7 @@
 
 	.fill {
 		height: 100%;
-		background: var(--accent, #e8734a);
+		background: var(--accent, #80A4D4);
 		transition: width 0.18s linear;
 	}
 

@@ -6,6 +6,7 @@
         readableText,
         imageLuminance,
         parseTheme,
+        theme as themeStore,
         type Theme
     } from '$lib/stores/theme.svelte';
 
@@ -46,6 +47,9 @@
     function selectTheme(t: Theme) {
         setup.data.theme = t.id;
         setup.data.background = t.image ?? null;
+        // Apply immediately so the choice is visible right away and persists
+        // into the browser rather than being written and never read.
+        themeStore.set(t);
     }
 
     function pickBackground(e: Event) {
@@ -59,7 +63,15 @@
             setup.data.theme = 'custom';
             setup.data.customBg ??= '#faf7f7';
             setup.data.customSurface ??= '#ffffff';
-            setup.data.customAccent ??= '#e8734a';
+            setup.data.customAccent ??= '#80A4D4';
+            themeStore.set({
+                id: 'custom',
+                name: 'Custom',
+                bg: setup.data.customBg,
+                surface: setup.data.customSurface,
+                accent: setup.data.customAccent,
+                image: setup.data.background
+            });
         };
         r.readAsDataURL(file);
     }
@@ -82,6 +94,7 @@
             setup.data.customAccent = t.accent;
             setup.data.background = t.image ?? null;
             setup.data.theme = 'custom';
+            themeStore.set(t);
         };
         r.readAsText(file);
     }

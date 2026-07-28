@@ -119,6 +119,12 @@
 		}
 	});
 
+	$effect(() => {
+		if (platform) {
+			os = platform;
+		}
+	});
+
 	function resolvePlatform(): Platform {
 		if (platform) return platform;
 		try {
@@ -157,7 +163,6 @@
 
 	onMount(() => {
 		os = resolvePlatform();
-		platform = os;
 		mounted = true;
 		updateTone();
 

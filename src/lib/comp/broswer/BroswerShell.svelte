@@ -7,8 +7,6 @@
         import { ai } from '$lib/stores/ai.svelte';
         import { memory } from '$lib/stores/memory.svelte';
     import {SvelteSet} from 'svelte/reactivity';
-    import Settings from './Settings.svelte';
-    import History from './History.svelte';
     import FavoriteDialog from './FavoriteDialog.svelte';
     import { prefs } from '$lib/stores/prefs.svelte';
     import { favorites } from '$lib/stores/favorites.svelte';
@@ -21,9 +19,12 @@
         hideTabWebview,
         closeTabWebview,
         onTabUrlChanged,
+        onTabTitleChanged,
         onTabShortcut,
         openMenuWebview,
         closeMenuWebview,
+        openOverlayWebview,
+        closeOverlayWebview,
         tabBack,
         tabForward,
         tabReload,
@@ -37,7 +38,7 @@
     import { platform as detectPlatform } from '@tauri-apps/plugin-os';
     import { windowChrome } from '$lib/stores/windowChrome.svelte';
     import { setup } from '$lib/stores/setup.svelte';
-    import { imageLuminance } from '$lib/stores/theme.svelte';
+    import { imageLuminance, theme, themeVars } from '$lib/stores/theme.svelte';
     interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number; favicon?: string;}
     type OS = 'macos' | 'windows' | 'linux';
     let os = $state<OS>('windows');
@@ -189,6 +190,14 @@
         }
     }
 
+    function fallbackTitle(url: string, input = ''): string {
+        const text = input.trim();
+        if (text && !text.includes('.') && !text.includes(' ')) {
+            return text;
+        }
+        return domainOf(url);
+    }
+
     let contentEl = $state<HTMLElement>();
     let menuBtnEl = $state<HTMLElement>();
         const openedViews = new SvelteSet<string>();
@@ -206,7 +215,9 @@
     $effect (() => {
         for (const id of  openedViews) {
             const t = tabs.find((x) => x.id === id);
-            if (id === activeId && t?.hasNavigated && !showHistory && !showSettings) {
+            // Settings/History no longer hide the page: they render in their own webview
+            // above it, so the site the user is reading stays visible underneath.
+            if (id === activeId && t?.hasNavigated) {
                 applyBounds(id);
                 showTabWebview(id);
             } else {
@@ -220,6 +231,9 @@
     function sendMenuState() {
         emit('menu-position', menuAnchor);
         emit('menu-zoom-sync', {zoom: Math.round((activeTab?.zoom ?? 1) *100)});
+        // The menu lives in its own webview and cannot read this document's custom
+        // properties, so the resolved theme has to be shipped across.
+        emit('menu-theme', themeVars(theme.current));
     }
 
     async function openMenu() {
@@ -230,7 +244,11 @@
         const MENU_WIDTH = 300;
         const btn = menuBtnEl?.getBoundingClientRect();
         menuAnchor = {
-            x: btn ? Math.max(6, Math.min(btn.left, window.innerWidth - MENU_WIDTH - 6)) : 6,
+            x: btn
+                ? os === 'macos'
+                    ? Math.max(6, Math.min(btn.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 6))
+                    : Math.max(6, Math.min(btn.left, window.innerWidth - MENU_WIDTH - 6))
+                : 6,
             y: btn ? btn.bottom +6 : 44
         };
         const rect = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
@@ -243,6 +261,47 @@
         menuOpen = false;
         closeMenuWebview();
     }
+
+    // Drives the Settings/History overlay webview from the existing flags, so every
+    // place that already sets showSettings/showHistory keeps working unchanged.
+    $effect(() => {
+        const kind = showSettings ? 'settings' : showHistory ? 'history' : null;
+        if (!kind) {
+            closeOverlayWebview();
+            return;
+        }
+        const rect = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+        openOverlayWebview(rect).then(() => {
+            emit('overlay-show', { kind });
+            emit('overlay-theme', themeVars(theme.current));
+        });
+    });
+
+    $effect(() => {
+        const unlistenClose = listen('overlay-close', () => {
+            showSettings = false;
+            showHistory = false;
+        });
+        const unlistenNavigate = listen<{ url: string }>('overlay-navigate', (e) => {
+            showSettings = false;
+            showHistory = false;
+            if (e.payload?.url) navigate(e.payload.url);
+        });
+        // Re-send state once the overlay route has registered its listeners.
+        const unlistenReady = listen('overlay-ready', () => {
+
+            const kind = showSettings ? 'settings' : showHistory ? 'history' : null;
+            if (kind) {
+                emit('overlay-show', { kind });
+                emit('overlay-theme', themeVars(theme.current));
+            }
+        });
+        return () => {
+            unlistenClose.then((off) => off());
+            unlistenNavigate.then((off) => off());
+            unlistenReady.then((off) => off());
+        };
+    });
 
     $effect(() => {
         const unlistenAction = listen<{ action: string }>('menu-action', (e) => {
@@ -259,7 +318,8 @@
             else if (action === 'fullscreen') toggleFullscreen();
         });
         const unlistenClose = listen('menu-close', () => closeMenu());
-        const unlistenReady = listen('Menu-ready', () => sendMenuState());
+        // Event names are case-sensitive: the menu route emits 'menu-ready'.
+        const unlistenReady = listen('menu-ready', () => sendMenuState());
         return () => {
             unlistenAction.then((off) => off());
             unlistenClose.then((off) => off());
@@ -364,6 +424,17 @@
             unlisten.then((off) => off());
         };
     });
+
+    $effect(() => {
+        const unlisten = onTabTitleChanged(({ tabId, title }) => {
+            const tab = tabs.find((t) => t.id === tabId);
+            if (!tab || !title.trim()) return;
+            tab.title = title.trim();
+        });
+        return () => {
+            unlisten.then((off) => off());
+        };
+    });
     
 
     function newTab() {
@@ -408,7 +479,7 @@
             tab.url = url;
             tab.searchText = input;
             tab.hasNavigated = true;
-            tab.title = input;
+            tab.title = fallbackTitle(url, input);
             tab.favicon = faviconFor(url);
             history.record(url, input, isUrl ? null : input);
 
@@ -476,7 +547,7 @@
         tab.cursor -= 1;
         const target = tab.hist[tab.cursor];
         tab.url = target;
-        tab.title = target;
+        tab.title = domainOf(target);
         tab.favicon = faviconFor(target);
         lastActionAt.set(tab.id, Date.now());
         navPending.set(tab.id, Date.now());
@@ -490,7 +561,7 @@
         if (tab.cursor === -1) {
             tab.cursor = 0;
             tab.url = tab.hist[0];
-            tab.title = tab.hist[0];
+            tab.title = domainOf(tab.hist[0]);
             tab.favicon = faviconFor(tab.hist[0]);
             tab.hasNavigated = true;
             return;
@@ -499,7 +570,7 @@
         tab.cursor += 1;
         const target = tab.hist[tab.cursor];
         tab.url = target;
-        tab.title = target;
+        tab.title = domainOf(target);
         tab.favicon = faviconFor(target);
         lastActionAt.set(tab.id, Date.now());
         navPending.set(tab.id, Date.now());
@@ -514,7 +585,6 @@
             input.select();
         }
     }
-
     $effect(() => {
         const unlisten = listen<string>('global-shortcut', (e) => {
             const action = e.payload;
@@ -593,7 +663,7 @@
         <div class="content" bind:this={contentEl}>
             {#if activeTab?.hasNavigated}
             <div class="placeholder">
-                <i class="ti ti-world"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <i class="ti ti-world"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" />
     <path d="M3.6 9h16.8" />
     <path d="M3.6 15h16.8" />
@@ -695,13 +765,7 @@
     </div>
 </div>
 
-{#if showSettings}
-<Settings onclose={() => (showSettings = false)} />
-{/if}
 
-{#if showHistory}
-<History onclose={() => (showHistory = false)} onopen={(url) => navigate(url)} />
-{/if}
 
 {#if favDialog}
 <FavoriteDialog
@@ -760,7 +824,22 @@
 
     .menubtn:hover,
     .menubtn.open {
-        background: rgba(0, 0, 0, 0.06);
+        background: var(--hover);
+    }
+
+    /* The chevron points down when closed and flips up while the menu is open. */
+    .menubtn svg {
+        transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .menubtn.open svg {
+        transform: rotate(180deg);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .menubtn svg {
+            transition: none;
+        }
     }
 
     .body { flex: 1; display: flex; overflow: hidden;}
@@ -786,9 +865,6 @@
         background-position: center;
         background-repeat: no-repeat;
     }
-
-    /* Over a photo, tiles need their own surface and the text needs a shadow,
-       otherwise both disappear into whatever the image happens to be. */
     .home.has-bg .greeting,
     .home.has-bg .section h2 {
         color: var(--home-text);
@@ -929,7 +1005,7 @@
 
     .fav:hover .fav-icon {
         transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(74, 58, 46, 0.14);
+        box-shadow: 0 6px 16px var(--border-strong);
     }
 
     .add-icon {
@@ -965,7 +1041,7 @@
         border: none;
         border-radius: 50%;
         background: var(--accent);
-        color: #fff;
+        color: var(--accent-contrast);
         cursor: pointer;
     }
 
@@ -984,7 +1060,7 @@
         align-items: center;
         gap: 12px;
         padding: 10px 12px;
-        border: 1px solid rgba(74, 58, 46, 0.07);
+        border: 1px solid var(--border);
         border-radius: 10px;
         background: var(--bg-page);
         font-family: inherit;
@@ -995,7 +1071,7 @@
 
     .recent:hover {
         background: var(--tab-hover);
-        border-color: rgba(74, 58, 46, 0.12);
+        border-color: var(--border-strong);
     }
 
     .recent-icon {

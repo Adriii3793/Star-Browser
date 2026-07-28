@@ -17,6 +17,13 @@ struct TabUrlChanged {
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct TabTitleChanged {
+    tab_id: String,
+    title: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TabShortcut {
     tab_id: String,
     action: String,
@@ -100,6 +107,8 @@ pub async fn open_tab_webview(
 
     let nav_app = app.clone();
     let nav_tab_id = tab_id.clone();
+    let title_app = app.clone();
+    let title_tab_id = tab_id.clone();
     let shortcut_app = app.clone();
     let shortcut_tab_id = tab_id.clone();
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
@@ -124,6 +133,17 @@ pub async fn open_tab_webview(
                         action: action.to_string(),
                     },
                 );
+            } else {
+                let clean_title = title.trim();
+                if !clean_title.is_empty() {
+                    let _ = title_app.emit(
+                        "tab-title-changed",
+                        TabTitleChanged {
+                            tab_id: title_tab_id.clone(),
+                            title: clean_title.to_string(),
+                        },
+                    );
+                }
             }
         });
 
@@ -190,7 +210,8 @@ pub async fn show_tab_webview(state: State<'_, AppState>, tab_id: String) -> Res
     let views = state.views.lock().unwrap();
 
     for(label, webview) in views.iter() {
-        if *label == MENU_LABEL {
+        // Overlay surfaces float above the tabs and manage their own visibility.
+        if *label == MENU_LABEL || *label == OVERLAY_LABEL {
             continue;
         }
         if *label == target {
@@ -229,6 +250,7 @@ pub async fn close_tab_webview(
 }
 
 const MENU_LABEL: &str = "__menu_overlay__";
+const OVERLAY_LABEL: &str = "__panel_overlay__";
 
 #[tauri::command]
 pub async fn open_menu_webview(
@@ -239,11 +261,17 @@ pub async fn open_menu_webview(
     width: f64,
     height: f64,
 ) -> Result<(), AppError> {
+    let main = app.get_window("main").ok_or(AppError::WindowNotFound)?;
+
     {
         let views = state.views.lock().unwrap();
         if let Some(webview) = views.get(MENU_LABEL) {
             webview.set_position(LogicalPosition::new(x, y))?;
             webview.set_size(LogicalSize::new(width, height))?;
+            // Child webviews stack in the order they were attached, so tabs opened after
+            // the menu would paint over it and hide it behind the page. Re-attaching the
+            // menu moves it back to the top of that order.
+            let _ = webview.reparent(&main);
             webview.show()?;
             let _ = webview.set_focus();
             return Ok(());
@@ -252,8 +280,6 @@ pub async fn open_menu_webview(
 
     let builder = WebviewBuilder::new(MENU_LABEL, WebviewUrl::App("menu".into()))
         .transparent(true);
-
-    let main = app.get_window("main").ok_or(AppError::WindowNotFound)?;
 
     let webview = main.add_child(
         builder,
@@ -271,10 +297,70 @@ pub async fn open_menu_webview(
     Ok(())
 }
 
+/// Full-window transparent surface that hosts Settings and History.
+///
+/// These used to be plain DOM overlays inside the main webview. A tab's content is a
+/// native child webview that always paints above that DOM, so the only way to show them
+/// was to hide the page, which replaced it instead of overlaying it. Hosting them in their
+/// own webview lets the page stay visible underneath.
+#[tauri::command]
+pub async fn open_overlay_webview(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), AppError> {
+    let main = app.get_window("main").ok_or(AppError::WindowNotFound)?;
+
+    {
+        let views = state.views.lock().unwrap();
+        if let Some(webview) = views.get(OVERLAY_LABEL) {
+            webview.set_position(LogicalPosition::new(x, y))?;
+            webview.set_size(LogicalSize::new(width, height))?;
+            // Re-attach so it sits above any tab opened after it.
+            let _ = webview.reparent(&main);
+            webview.show()?;
+            let _ = webview.set_focus();
+            return Ok(());
+        }
+    }
+
+    let builder =
+        WebviewBuilder::new(OVERLAY_LABEL, WebviewUrl::App("overlay".into())).transparent(true);
+
+    let webview = main.add_child(
+        builder,
+        LogicalPosition::new(x, y),
+        LogicalSize::new(width, height),
+    )?;
+    webview.show()?;
+    let _ = webview.set_focus();
+
+    state
+        .views
+        .lock()
+        .unwrap()
+        .insert(OVERLAY_LABEL.to_string(), webview);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_overlay_webview(state: State<'_, AppState>) -> Result<(), AppError> {
+    if let Some(webview) = state.views.lock().unwrap().get(OVERLAY_LABEL) {
+        webview.hide()?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn close_menu_webview(state: State<'_, AppState>) -> Result<(), AppError> {
-    if let Some(webview) = state.views.lock().unwrap().remove(MENU_LABEL) {
-        webview.close()?;
+    // Hide instead of destroying. Closing the webview meant the next open had to
+    // rebuild it and reload the whole /menu route, which is what made the menu take
+    // so long to appear. Keeping it alive makes reopening instant.
+    if let Some(webview) = state.views.lock().unwrap().get(MENU_LABEL) {
+        webview.hide()?;
     }
     Ok(())
 }

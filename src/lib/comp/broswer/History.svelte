@@ -112,7 +112,7 @@
         align-items: center;
         justify-content: center;
         padding: 24px;
-        background: rgba(74, 58, 46, 0.28);
+        background: var(--overlay);
     }
 
     .panel {
@@ -123,7 +123,7 @@
         padding: 22px 24px 20px;
         background: var(--bg-page);
         border-radius: 14px;
-        box-shadow: 0 18px 48px rgba(74, 58, 46, 0.24);
+        box-shadow: 0 18px 48px var(--overlay);
     }
 
     header {
@@ -171,7 +171,7 @@
     .search input {
         width: 100%;
         padding: 9px 14px;
-        border: 1px solid rgba(74, 58, 46, 0.14);
+        border: 1px solid var(--border-strong);
         border-radius: 999px;
         background: var(--field);
         color: var(--text);

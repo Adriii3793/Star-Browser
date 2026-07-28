@@ -116,7 +116,7 @@
 	}
 
     .tab:not(:last-child) {
-        border-right: 1px solid rgba(0, 0, 0, 0.08);
+        border-right: 1px solid var(--hover);
     }
 
     .tab:hover,
@@ -126,7 +126,7 @@
 
     
 	.tab:not(.active):hover {
-		background: rgba(0, 0, 0, 0.04);
+		background: var(--hover);
 	}
 
 	.tab.active {
@@ -207,7 +207,7 @@
 		opacity: 1;
 	}
 	.close:hover {
-		background: rgba(0, 0, 0, 0.08);
+		background: var(--hover);
 	}
 
 	@media (prefers-reduced-motion: reduce) {

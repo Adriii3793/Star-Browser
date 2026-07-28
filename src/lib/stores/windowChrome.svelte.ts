@@ -1,14 +1,11 @@
-import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
-import type { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 type Platform = 'macos' | 'windows' | 'linux';
-type Bounds = { position: PhysicalPosition; size: PhysicalSize };
 
 class WindowChromeStore {
 	maximized = $state(false);
 
 	#os: Platform = 'windows';
-	#restoreBounds: Bounds | null = null;
 	#unlisten: (() => void) | undefined;
 
 	async init(os: Platform) {
@@ -39,16 +36,14 @@ class WindowChromeStore {
 		try {
 			if (this.#os === 'windows') {
 				if (this.maximized) {
-					if (this.#restoreBounds) {
-						await win.setPosition(this.#restoreBounds.position);
-						await win.setSize(this.#restoreBounds.size);
-						this.#restoreBounds = null;
-					} else {
-						await win.unmaximize();
-					}
+					await win.unmaximize();
 					this.maximized = false;
 				} else {
-					await this.#fillWorkArea(true);
+					// Let Windows compute the fullscreen work-area bounds for a
+					// transparent frameless window. Manual size/position math left a
+					// visible empty strip on the left edge after maximizing.
+					this.maximized = true;
+					await win.maximize();
 				}
 			} else {
 				if (await win.isMaximized()) {
@@ -66,27 +61,13 @@ class WindowChromeStore {
 		const win = getCurrentWindow();
 		try {
 			if (this.#os === 'windows') {
-				this.maximized = (await win.isMaximized()) || this.#restoreBounds !== null;
+				this.maximized = await win.isMaximized();
 			} else {
 				this.maximized = (await win.isMaximized()) || (await win.isFullscreen());
 			}
 		} catch {
 			this.maximized = false;
 		}
-	}
-
-	async #fillWorkArea(keepFlag: boolean) {
-		const win = getCurrentWindow();
-		const [position, size, monitor] = await Promise.all([
-			win.outerPosition(),
-			win.outerSize(),
-			currentMonitor()
-		]);
-		if (!monitor) return;
-		this.#restoreBounds = { position, size };
-		await win.setSize(monitor.workArea.size);
-		await win.setPosition(monitor.workArea.position);
-		if (keepFlag) this.maximized = true;
 	}
 }
 

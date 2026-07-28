@@ -4,6 +4,28 @@
 	import Loading from '../ui/Loading.svelte';
 	import {memory} from '$lib/stores/memory.svelte';
 	import { fetchPageContext } from '$lib/services/ai';
+	import { renderMarkdown } from '$lib/services/markdown';
+	import { cubicOut } from 'svelte/easing';
+
+	/**
+	 * Slide the panel in from the right edge and back out again. A CSS animation could
+	 * only ever run on open, because the parent's {#if} rips the element straight out
+	 * of the DOM on close; a Svelte transition holds it there long enough to animate.
+	 */
+	function slidePanel(node: HTMLElement, { duration = 260 } = {}) {
+		const reduced =
+			typeof matchMedia !== 'undefined' &&
+			matchMedia('(prefers-reduced-motion: reduce)').matches;
+		const width = node.offsetWidth;
+		return {
+			duration: reduced ? 0 : duration,
+			easing: cubicOut,
+			css: (t: number) => `
+				opacity: ${t};
+				transform: translateX(${(1 - t) * (width * 0.35 + 24)}px);
+			`
+		};
+	}
     import { page } from '$app/state';
 	let showMemory = $state(false);
 	let memoryDraft = $state('');
@@ -335,11 +357,86 @@
 		activeChatId = null;
 		showHistory = false;
 	}
+
+	/* ---- message actions ------------------------------------------------ */
+
+	let editingIndex = $state<number | null>(null);
+	let editDraft = $state('');
+
+	async function copyMessage(message: ChatMessage) {
+		const text = messageText(message);
+		if (!text) return;
+		try {
+			await navigator.clipboard.writeText(text);
+			showToast('Copied to clipboard');
+		} catch {
+			showToast('Could not access the clipboard');
+		}
+	}
+
+	async function retry(index: number) {
+		await ai.regenerate(index, await currentPage());
+		saveCurrentChat();
+	}
+
+	function startEdit(index: number, message: ChatMessage) {
+		editingIndex = index;
+		editDraft = messageText(message);
+	}
+
+	function cancelEdit() {
+		editingIndex = null;
+		editDraft = '';
+	}
+
+	async function confirmEdit(index: number) {
+		const text = editDraft.trim();
+		if (!text) return;
+		cancelEdit();
+		await ai.editAndResend(index, text, await currentPage());
+		saveCurrentChat();
+	}
+
+	function exportConversation() {
+		if (ai.messages.length === 0) return;
+		const stamp = new Date().toISOString();
+		const body = ai.messages
+			.map((m, i) => {
+				const who = m.role === 'user' ? 'You' : 'Assistant';
+				const variants = ai.alternatives[i];
+				let block = `## ${who}\n\n${messageText(m)}\n`;
+				// Export every answer that was generated, not just the visible one.
+				if (m.role === 'assistant' && variants?.length > 1) {
+					const active = ai.activeAlt[i] ?? variants.length - 1;
+					block += variants
+						.map((v, n) =>
+							n === active ? '' : `\n<details><summary>Alternative ${n + 1}</summary>\n\n${v}\n</details>\n`
+						)
+						.join('');
+				}
+				return block;
+			})
+			.join('\n');
+
+		const md = `---\ntitle: star chat export\nexported: ${stamp}\nmessages: ${ai.messages.length}\n---\n\n${body}`;
+		const blob = new Blob([md], { type: 'text/markdown' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'star-chat.md';
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		setTimeout(() => URL.revokeObjectURL(url), 10_000);
+		showToast('Saved star-chat.md to your Downloads folder');
+	}
 </script>
 
 <aside
 	class="panel"
 	style="width:{panelWidth}px"
+	transition:slidePanel
+	class:resizing
 	class:drag-active={dragActive}
 	ondragenter={handleDragEnter}
 	ondragover={handleDragOver}
@@ -371,9 +468,18 @@
         <path d="M15 3a3 3 0 0 1 3 3a3 3 0 0 1 3 3a3 3 0 0 1 -1.5 2.6M15 21v-9" />
     </svg>
 </button>
-			<button class="icon" aria-label="More" type="button">
+			<button
+				class="icon"
+				aria-label="Export conversation"
+				title="Export conversation"
+				type="button"
+				disabled={ai.messages.length === 0}
+				onclick={exportConversation}
+			>
 				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" />
+					<path d="M12 3v12" />
+					<path d="M8 11l4 4l4 -4" />
+					<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
 				</svg>
 			</button>
 			<button class="icon" aria-label="Close" type="button" onclick={onclose}>
@@ -410,7 +516,7 @@
 		</div>
 	</div>
 	  <div style="display:flex;gap:6px;padding:8px;">
-            <input style="flex:1;border:1px solid rgba(0,0,0,0.1);border-radius:8px;padding:6px 8px;font:inherit;font-size:12px;"
+            <input style="flex:1;border:1px solid var(--border-strong);border-radius:8px;padding:6px 8px;font:inherit;font-size:12px;"
                 placeholder="Add something to remember…" bind:value={memoryDraft}
                 onkeydown={(e) => e.key === 'Enter' && addMemory()} />
             <button class="tool send" type="button" onclick={addMemory} aria-label="Save memory">＋</button>
@@ -449,7 +555,7 @@
 	<div class="body" bind:this={listEl}>
 		{#if ai.messages.length === 0}
 			<div class="hero">
-				<h1>Hello {username}, what's on your mind?</h1>
+				<h1>Hi {username}, let's get into it</h1>
 			</div>
 			<div class="prompts">
 				{#each prompts as prompt (prompt)}
@@ -459,19 +565,124 @@
 		{:else}
 			<ul class="messages">
 				{#each ai.messages as message, i (i)}
-					<li class="msg {message.role}">
-						{#each messageImages(message) as img (img)}
-							<img class="msg-image" src={img} alt="attachment" />
-						{/each}
-						{#if messageText(message)}
-							<p class="msg-text">{messageText(message)}</p>
+					<li class="row {message.role}">
+						<div class="msg {message.role}">
+							{#each messageImages(message) as img (img)}
+								<img class="msg-image" src={img} alt="attachment" />
+							{/each}
+
+							{#if editingIndex === i}
+								<div class="edit-box">
+									<textarea
+										rows="3"
+										bind:value={editDraft}
+										aria-label="Edit message"
+										onkeydown={(e) => {
+											if (e.key === 'Enter' && !e.shiftKey) {
+												e.preventDefault();
+												confirmEdit(i);
+											} else if (e.key === 'Escape') {
+												e.preventDefault();
+												cancelEdit();
+											}
+										}}
+									></textarea>
+									<div class="edit-actions">
+										<button type="button" class="mini ghost" onclick={cancelEdit}>Cancel</button>
+										<button type="button" class="mini solid" onclick={() => confirmEdit(i)}>
+											Send
+										</button>
+									</div>
+								</div>
+							{:else if messageText(message)}
+								{#if message.role === 'assistant'}
+									<!-- Model output: rendered from Markdown, sanitised in renderMarkdown(). -->
+									<div class="msg-text md">{@html renderMarkdown(messageText(message))}</div>
+								{:else}
+									<p class="msg-text">{messageText(message)}</p>
+								{/if}
+							{/if}
+						</div>
+
+						{#if editingIndex !== i && messageText(message)}
+							<div class="actions">
+								<button
+									type="button"
+									class="act"
+									title="Copy"
+									aria-label="Copy message"
+									onclick={() => copyMessage(message)}
+								>
+									<svg viewBox="0 0 24 24" aria-hidden="true">
+										<rect x="9" y="9" width="11" height="11" rx="2" />
+										<path d="M5 15V5a2 2 0 0 1 2-2h10" />
+									</svg>
+								</button>
+
+								{#if message.role === 'assistant'}
+									<button
+										type="button"
+										class="act"
+										title="Try again"
+										aria-label="Try again"
+										disabled={ai.sending}
+										onclick={() => retry(i)}
+									>
+										<svg viewBox="0 0 24 24" aria-hidden="true">
+											<path d="M20 11a8.1 8.1 0 0 0-15.5-2m-.5-5v5h5" />
+											<path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 5v-5h-5" />
+										</svg>
+									</button>
+
+									{#if (ai.alternatives[i]?.length ?? 0) > 1}
+										{@const list = ai.alternatives[i]}
+										{@const active = ai.activeAlt[i] ?? list.length - 1}
+										<span class="variants" aria-label="Switch between answers">
+											<button
+												type="button"
+												class="act tiny"
+												aria-label="Previous answer"
+												disabled={active === 0}
+												onclick={() => ai.selectAlternative(i, active - 1)}
+											>
+												<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6l6 6" /></svg>
+											</button>
+											<span class="count">{active + 1}/{list.length}</span>
+											<button
+												type="button"
+												class="act tiny"
+												aria-label="Next answer"
+												disabled={active === list.length - 1}
+												onclick={() => ai.selectAlternative(i, active + 1)}
+											>
+												<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6l-6 6" /></svg>
+											</button>
+										</span>
+									{/if}
+								{:else}
+									<button
+										type="button"
+										class="act"
+										title="Edit"
+										aria-label="Edit message"
+										disabled={ai.sending}
+										onclick={() => startEdit(i, message)}
+									>
+										<svg viewBox="0 0 24 24" aria-hidden="true">
+											<path d="M4 20h4l10.5-10.5a2.828 2.828 0 1 0-4-4L4 16v4" />
+										</svg>
+									</button>
+								{/if}
+							</div>
 						{/if}
 					</li>
 				{/each}
 				{#if ai.sending}
-					<li class="msg assistant thinking">
-						<div class="loading-wrapper">
-							<Loading size={24} showText={true} />
+					<li class="row assistant">
+						<div class="msg assistant thinking">
+							<div class="loading-wrapper">
+								<Loading size={24} showText={true} />
+							</div>
 						</div>
 					</li>
 				{/if}
@@ -511,26 +722,22 @@
 	{/if}
 
 	<div class="composer" class:drag-over={dragActive}>
+		<button class="tool" aria-label="Attach File" type="button" onclick={() => fileInputEl?.click()}>
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+		</button>
 		<textarea
 			rows="1"
-			placeholder="Send a message or drag files here"
+			placeholder="Ask star"
 			bind:value={draft}
 			onkeydown={handleKeydown}
 			onpaste={handlePaste}
 		></textarea>
-		<div class="toolbar">
-			<div class="group">
-				<button class="tool" aria-label="Attach File" type="button" onclick={() => fileInputEl?.click()}>
-					<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-				</button>
-				<span class="model">{ai.used}/{ai.limit}</span>
-			</div>
-			<button class="tool send" aria-label="Send" type="button" onclick={submit}>
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-				</svg>
-			</button>
-		</div>
+		<span class="model" title="Requests used today">{ai.used}/{ai.limit}</span>
+		<button class="tool send" aria-label="Send" type="button" onclick={submit}>
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+			</svg>
+		</button>
 	</div>
 
 	<input
@@ -557,7 +764,7 @@
 		padding: 8px 12px;
 		border-radius: 10px;
 		background: var(--text, #4a3a2e);
-		color: #fff;
+		color: var(--accent-contrast);
 		font-size: 12px;
 		line-height: 1.35;
 	}
@@ -571,10 +778,10 @@
 		display: flex;
 		flex-direction: column;
 		margin: 0 8px 8px 0;
-		border: 1px solid rgba(0, 0, 0, 0.05);
+		border: 1px solid var(--hover);
 		border-radius: 16px;
 		background: var(--bg-page, #fff);
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+		box-shadow: 0 8px 32px var(--hover);
 		overflow: hidden;
 		font-family:
 			Inter,
@@ -585,26 +792,54 @@
 			sans-serif;
 		transition: border-color 0.2s ease;
 	}
+
 	.resize-handle {
 		position: absolute;
-		top:0;
-		left: -3px;
-		width: 8px;
+		top: 0;
+		left: -5px;
+		width: 12px;
 		height: 100%;
 		z-index: 5;
 		cursor: ew-resize;
 		touch-action: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
-	.resize-handle:hover {
-		background: linear-gradient(to right, transparent, rgba(232, 115, 74, 0.18));
+
+	/* Always-visible grip pill: makes it obvious the panel can be dragged wider or
+	   narrower. It grows and picks up the accent colour on hover and while dragging. */
+	.resize-handle::before {
+		content: '';
+		width: 4px;
+		height: 34px;
+		border-radius: 999px;
+		background: var(--text-muted, #ac8064);
+		opacity: 0.3;
+		transition:
+			opacity 0.16s ease,
+			height 0.16s ease,
+			background-color 0.16s ease;
+	}
+
+	.resize-handle:hover::before {
+		height: 56px;
+		opacity: 0.8;
+		background: var(--accent, #80A4D4);
+	}
+
+	.panel.resizing .resize-handle::before {
+		height: 72px;
+		opacity: 1;
+		background: var(--accent, #80A4D4);
 	}
 	.panel.resizing {
 		user-select: none;
 	}
 
 	.panel.drag-active {
-		border-color: var(--accent, #e8734a);
-		background: rgba(232, 115, 74, 0.02);
+		border-color: var(--accent, #80A4D4);
+		background: rgba(128, 164, 212, 0.02);
 	}
 
 	.head {
@@ -618,6 +853,7 @@
 		align-items: center;
 		gap: 4px;
 	}
+	/* Circular header controls, as in the reference. */
 	.icon {
 		display: flex;
 		align-items: center;
@@ -625,11 +861,16 @@
 		width: 32px;
 		height: 32px;
 		border: 0;
-		border-radius: 8px;
-		background: transparent;
-		color: var(--text-muted, #ac8064);
+		border-radius: 50%;
+		background: var(--field);
+		color: var(--text-soft, #8a6b57);
 		cursor: pointer;
-		transition: background-color 150ms ease-in-out;
+		transition: background-color 150ms ease-in-out, color 150ms ease-in-out;
+	}
+
+	.icon:disabled {
+		opacity: 0.45;
+		cursor: default;
 	}
 	.icon:hover {
 		background: var(--field, #f7f1ec);
@@ -653,13 +894,32 @@
 		overflow-y: auto;
 	}
 
+	/* Gemini-style centred greeting: gradient spark above, light large heading. */
+	.hero {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		flex: 1;
+		min-height: 180px;
+		text-align: center;
+	}
+
+	.spark {
+		width: 34px;
+		height: 34px;
+		margin-bottom: 14px;
+	}
+
 	.hero h1 {
-		margin: 24px 0;
-		font-size: 26px;
-		font-weight: 600;
-		line-height: 1.2;
+		margin: 0;
+		font-size: 25px;
+		font-weight: 500;
+		line-height: 1.25;
+		letter-spacing: -0.01em;
 		color: var(--text, #4a3a2e);
-		text-align: left;
+		text-align: center;
+		text-wrap: balance;
 	}
 
 	.prompts {
@@ -671,7 +931,7 @@
 	.chip {
 		align-self: flex-start;
 		padding: 8px 16px;
-		border: 1px solid rgba(0, 0, 0, 0.08);
+		border: 1px solid var(--hover);
 		border-radius: 16px;
 		background: var(--bg-page, #fff);
 		color: var(--text-soft, #8a6b57);
@@ -693,8 +953,24 @@
 		padding: 0;
 		list-style: none;
 	}
+
+	/* Each row stacks the bubble and its action bar, and decides which side they sit on. */
+	.row {
+		display: flex;
+		flex-direction: column;
+		max-width: 100%;
+		min-width: 0;
+	}
+	.row.user {
+		align-items: flex-end;
+	}
+	.row.assistant {
+		align-items: flex-start;
+	}
+
 	.msg {
 		max-width: 85%;
+		min-width: 0;
 		padding: 8px 16px;
 		border-radius: 16px;
 		font-size: 14px;
@@ -702,12 +978,10 @@
 		word-break: break-word;
 	}
 	.msg.user {
-		align-self: flex-end;
-		background: var(--accent, #e8734a);
-		color: #fff;
+		background: var(--accent, #80A4D4);
+		color: var(--accent-contrast);
 	}
 	.msg.assistant {
-		align-self: flex-start;
 		background: var(--field, #f7f1ec);
 		color: var(--text, #4a3a2e);
 	}
@@ -715,6 +989,243 @@
 		margin: 0;
 		white-space: pre-wrap;
 		word-break: break-word;
+	}
+
+	/* Markdown output must not keep the pre-wrap used for plain user text. */
+	.msg-text.md {
+		white-space: normal;
+	}
+
+	/* ---- rendered Markdown ----
+	   Injected via {@html}, so Svelte's scoping does not reach it: these need :global. */
+
+	.msg-text.md :global(> *:first-child) {
+		margin-top: 0;
+	}
+	.msg-text.md :global(> *:last-child) {
+		margin-bottom: 0;
+	}
+	.msg-text.md :global(p) {
+		margin: 0 0 8px;
+	}
+	.msg-text.md :global(h1),
+	.msg-text.md :global(h2),
+	.msg-text.md :global(h3),
+	.msg-text.md :global(h4),
+	.msg-text.md :global(h5),
+	.msg-text.md :global(h6) {
+		margin: 14px 0 6px;
+		font-weight: 600;
+		line-height: 1.25;
+	}
+	.msg-text.md :global(h1) {
+		font-size: 18px;
+	}
+	.msg-text.md :global(h2) {
+		font-size: 16px;
+	}
+	.msg-text.md :global(h3) {
+		font-size: 15px;
+	}
+	.msg-text.md :global(h4),
+	.msg-text.md :global(h5),
+	.msg-text.md :global(h6) {
+		font-size: 14px;
+	}
+	.msg-text.md :global(ul),
+	.msg-text.md :global(ol) {
+		margin: 0 0 8px;
+		padding-left: 20px;
+	}
+	.msg-text.md :global(li) {
+		margin: 2px 0;
+	}
+	.msg-text.md :global(li > p) {
+		margin: 0;
+	}
+	.msg-text.md :global(a) {
+		color: var(--accent, #80A4D4);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.msg-text.md :global(strong) {
+		font-weight: 650;
+	}
+	.msg-text.md :global(code) {
+		padding: 1.5px 5px;
+		border-radius: 5px;
+		background: var(--hover);
+		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+		font-size: 0.88em;
+	}
+	.msg-text.md :global(pre) {
+		margin: 0 0 8px;
+		padding: 10px 12px;
+		border-radius: 10px;
+		background: var(--hover);
+		/* Long lines scroll inside the block instead of stretching the panel. */
+		overflow-x: auto;
+	}
+	.msg-text.md :global(pre code) {
+		display: block;
+		padding: 0;
+		background: none;
+		font-size: 12.5px;
+		line-height: 1.5;
+		white-space: pre;
+	}
+	.msg-text.md :global(blockquote) {
+		margin: 0 0 8px;
+		padding: 2px 0 2px 10px;
+		border-left: 3px solid var(--border-strong);
+		color: var(--text-soft, #8a6b57);
+	}
+	.msg-text.md :global(hr) {
+		margin: 12px 0;
+		border: 0;
+		border-top: 1px solid var(--border-strong);
+	}
+	.msg-text.md :global(table) {
+		display: block;
+		width: 100%;
+		margin: 0 0 8px;
+		border-collapse: collapse;
+		overflow-x: auto;
+		font-size: 13px;
+	}
+	.msg-text.md :global(th),
+	.msg-text.md :global(td) {
+		padding: 5px 9px;
+		border: 1px solid var(--border-strong);
+		text-align: left;
+	}
+	.msg-text.md :global(th) {
+		background: var(--hover);
+		font-weight: 600;
+	}
+	.msg-text.md :global(img) {
+		max-width: 100%;
+		border-radius: 8px;
+	}
+
+	/* ---- per-message actions ---- */
+
+	.actions {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		margin: 2px 4px 0;
+		opacity: 0;
+		transition: opacity 0.14s ease;
+	}
+	.row:hover .actions,
+	.actions:focus-within {
+		opacity: 1;
+	}
+
+	.act {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		padding: 0;
+		border: 0;
+		border-radius: 7px;
+		background: transparent;
+		color: var(--text-muted, #ac8064);
+		cursor: pointer;
+		transition: background-color 0.14s ease, color 0.14s ease;
+	}
+	.act:hover:not(:disabled) {
+		background: var(--field, #f7f1ec);
+		color: var(--text, #4a3a2e);
+	}
+	.act:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	.act svg {
+		width: 14px;
+		height: 14px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 1.9;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+	.act.tiny {
+		width: 20px;
+		height: 20px;
+	}
+	.act.tiny svg {
+		width: 12px;
+		height: 12px;
+	}
+
+	.variants {
+		display: inline-flex;
+		align-items: center;
+		gap: 1px;
+		margin-left: 2px;
+	}
+	.count {
+		font-size: 11px;
+		color: var(--text-muted, #ac8064);
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* ---- inline edit ---- */
+
+	.edit-box {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 220px;
+	}
+	.edit-box textarea {
+		width: 100%;
+		padding: 8px 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: 10px;
+		background: var(--bg-page, #fff);
+		color: var(--text, #4a3a2e);
+		font: inherit;
+		font-size: 13px;
+		resize: vertical;
+	}
+	.edit-box textarea:focus {
+		outline: 2px solid var(--accent, #80A4D4);
+		outline-offset: -1px;
+	}
+	.edit-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
+	}
+	.mini {
+		padding: 5px 12px;
+		border: 0;
+		border-radius: 999px;
+		font: inherit;
+		font-size: 12px;
+		font-weight: 500;
+		cursor: pointer;
+	}
+	.mini.ghost {
+		background: var(--field, #f7f1ec);
+		color: var(--text-soft, #8a6b57);
+	}
+	.mini.solid {
+		background: var(--accent, #80A4D4);
+		color: var(--accent-contrast);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.actions,
+		.act {
+			transition: none;
+		}
 	}
 	.msg-image {
 		display: block;
@@ -765,7 +1276,7 @@
 	.history-panel {
 		display: flex;
 		flex-direction: column;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+		border-bottom: 1px solid var(--hover);
 		background: var(--field, #f7f1ec);
 		max-height: 200px;
 		overflow: hidden;
@@ -776,7 +1287,7 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 12px 16px;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+		border-bottom: 1px solid var(--hover);
 	}
 
 	.history-header h3 {
@@ -802,7 +1313,7 @@
 	}
 
 	.clear-btn:hover {
-		background: rgba(0, 0, 0, 0.06);
+		background: var(--hover);
 	}
 
 	.clear-btn svg {
@@ -840,11 +1351,11 @@
 		text-align: left;
 		cursor: pointer;
 		transition: background-color 150ms ease-in-out;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+		border-bottom: 1px solid var(--hover);
 	}
 
 	.history-item:hover {
-		background: rgba(0, 0, 0, 0.04);
+		background: var(--hover);
 	}
 
 	.history-title {
@@ -865,7 +1376,7 @@
 		flex-wrap: wrap;
 		gap: 8px;
 		padding: 8px;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+		border-bottom: 1px solid var(--hover);
 		background: var(--field, #f7f1ec);
 	}
 
@@ -878,7 +1389,7 @@
 		height: 60px;
 		border-radius: 8px;
 		background: var(--bg-page, #fff);
-		border: 1px solid rgba(0, 0, 0, 0.08);
+		border: 1px solid var(--hover);
 		overflow: hidden;
 	}
 
@@ -929,8 +1440,8 @@
 		padding: 0;
 		border: none;
 		border-radius: 50%;
-		background: var(--accent, #e8734a);
-		color: #fff;
+		background: var(--accent, #80A4D4);
+		color: var(--accent-contrast);
 		cursor: pointer;
 		opacity: 0;
 		transition: opacity 150ms ease-in-out;
@@ -950,30 +1461,43 @@
 		stroke-linejoin: round;
 	}
 
+	/* Single rounded pill: attach on the left, input in the middle, send on the right. */
 	.composer {
-		margin: 8px;
-		border: 1px solid rgba(0, 0, 0, 0.08);
-		border-radius: 16px;
-		background: var(--bg-page, #fff);
-		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 10px;
+		padding: 5px 5px 5px 6px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: var(--field);
 		transition: border-color 0.2s ease, background-color 0.2s ease;
 	}
 
+	.composer:focus-within {
+		border-color: var(--accent, #80A4D4);
+	}
+
 	.composer.drag-over {
-		border-color: var(--accent, #e8734a);
-		background: rgba(232, 115, 74, 0.02);
+		border-color: var(--accent, #80A4D4);
+		background: var(--field-strong, var(--field));
 	}
 	textarea {
-		width: 100%;
+		flex: 1;
+		min-width: 0;
 		max-height: 120px;
-		padding: 16px 16px 8px;
+		padding: 8px 2px;
 		border: 0;
 		background: transparent;
 		color: var(--text, #4a3a2e);
 		font: inherit;
 		font-size: 14px;
+		line-height: 1.35;
 		resize: none;
 		box-sizing: border-box;
+	}
+	textarea::placeholder {
+		color: var(--text-muted);
 	}
 	textarea:focus {
 		outline: none;
@@ -988,17 +1512,18 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
+		flex: 0 0 auto;
+		width: 34px;
+		height: 34px;
 		border: 0;
-		border-radius: 8px;
+		border-radius: 50%;
 		background: transparent;
-		color: var(--text-muted, #ac8064);
+		color: var(--text-soft, #8a6b57);
 		cursor: pointer;
 		transition: background-color 150ms ease-in-out;
 	}
 	.tool:hover {
-		background: var(--field, #f7f1ec);
+		background: var(--hover);
 	}
 	.tool svg {
 		width: 18px;
@@ -1011,17 +1536,19 @@
 	}
 
 	.tool.send {
-		background: var(--accent, #e8734a);
-		color: #fff;
+		background: var(--accent, #80A4D4);
+		color: var(--accent-contrast);
 	}
 
 	.tool.send:hover {
-		background: var(--accent-hover, #d85a2f);
+		background: var(--accent-hover, #6B8FC4);
 	}
 
 	.model {
-		font-size: 12px;
+		flex: 0 0 auto;
+		font-size: 11px;
 		color: var(--text-muted, #ac8064);
+		font-variant-numeric: tabular-nums;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

@@ -41,7 +41,7 @@
         </svg>
     </button>
     <button class="navbtn" aria-label="Reload" onclick={onreload}>
-        <svg class="nav" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="nav" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -5v5h5" />
             <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 5v-5h-5" />
         </svg>
@@ -73,7 +73,7 @@
         {/if}
 
         <button class="chat" onclick={onchat}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z" />
             </svg>
             Chat
@@ -90,8 +90,11 @@
         .nav {
             font-size: 18px; color: var(--text); cursor:pointer;
         }
+        /* Disabled back/forward arrows. Must stay a dimmed *text* colour: --overlay is a
+           modal backdrop token and rendered these almost invisible on a dark theme. */
         .nav.dim {
-            color: rgba(74, 58, 46, 0.28);
+            color: var(--text-muted);
+            opacity: 0.55;
         }
         .navbtn {
             display:flex;
@@ -127,7 +130,7 @@
         .field input::placeholder {color:var(--text-muted);}
         .chat {
             display: flex; align-items: center; gap: 7px;
-            background: #fff; border: none; border-radius: 999px;
+            background: var(--bg-page); border: none; border-radius: 999px;
             padding: 8px 15px; font-size: 13px; font-weight:500;
             color: var(--text); cursor: pointer;
         }
@@ -148,7 +151,7 @@
             padding: 5px 14px 5px 5px;
             border: none;
             border-radius: 999px;
-            background: #fff;
+            background: var(--bg-page);
             font: inherit;
             font-size: 13px;
             font-weight: 500;
@@ -170,7 +173,7 @@
             height: 26px;
             border-radius: 50%;
             background: var(--accent);
-            color: #fff;
+            color: var(--accent-contrast);
             font-size: 12px;
             font-weight: 700;
             overflow: hidden;

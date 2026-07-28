@@ -34,6 +34,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Star Development Team",
+    "copyright": "© 2026 Star Development Team",
+    "category": "Productivity",
+    "shortDescription": "Star — a minimalist AI browser",
+    "homepage": "https://github.com/Adriii3793/Project-2k26",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,8 +47,16 @@
       "icons/icon.ico"
     ],
     "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "wix": {
+        "language": ["it-IT"]
+      },
       "nsis": {
-        "installerHooks": "./installer-hooks.nsh"
+        "installerHooks": "./installer-hooks.nsh",
+        "languages": ["Italian", "English"],
+        "displayLanguageSelector": true
       }
     }
   }

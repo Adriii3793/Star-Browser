@@ -128,13 +128,10 @@
         background: transparent;
     }
 
+    /* No custom properties are declared here on purpose: the menu route defines the
+       defaults on :root, and the shell overwrites them with the live theme as inline
+       styles on <html>. Declaring them here would shadow both. */
     .menu {
-        --text: #4a3a2e;
-        --text-soft: #8a6b57;
-        --text-muted: #ac8064;
-        --field: #f7f1ec;
-        --tab-hover: #fbf6f2;
-        --accent: #e8734a;
         font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
         -webkit-font-smoothing: antialiased;
         text-rendering: optimizeLegibility; 
@@ -145,11 +142,62 @@
         width: 300px;
         max-height: min(560px, calc(100vh - 90px));
         overflow-y: auto;
+        /* Without this the menu grows a stray horizontal scrollbar along its bottom edge. */
+        overflow-x: hidden;
         padding: 6px;
-        background: #fff;
-        border: 1px solid rgba(74, 58, 46, 0.08);
+        background: var(--bg-page, #fff);
+        border: 1px solid var(--border, rgba(74, 58, 46, 0.08));
         border-radius: 12px;
-        box-shadow: 0 12px 32px rgba(74, 58, 46, 0.16);
+        box-shadow: 0 12px 32px var(--shadow, rgba(74, 58, 46, 0.16));
+        transform-origin: top center;
+        animation: menu-in 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    /* Drops in from just under the chevron as it flips up. */
+    @keyframes menu-in {
+        from {
+            opacity: 0;
+            transform: translateY(-8px) scale(0.96);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    /* Items stagger in behind the panel so the menu feels like it unfolds. */
+    .item,
+    .sep {
+        animation: item-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+    }
+
+    .menu > *:nth-child(1) { animation-delay: 0.02s; }
+    .menu > *:nth-child(2) { animation-delay: 0.03s; }
+    .menu > *:nth-child(3) { animation-delay: 0.04s; }
+    .menu > *:nth-child(4) { animation-delay: 0.05s; }
+    .menu > *:nth-child(5) { animation-delay: 0.06s; }
+    .menu > *:nth-child(6) { animation-delay: 0.07s; }
+    .menu > *:nth-child(7) { animation-delay: 0.08s; }
+    .menu > *:nth-child(8) { animation-delay: 0.09s; }
+    .menu > *:nth-child(n + 9) { animation-delay: 0.1s; }
+
+    @keyframes item-in {
+        from {
+            opacity: 0;
+            transform: translateY(-4px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .menu,
+        .item,
+        .sep {
+            animation: none;
+        }
     }
 
     .item {
@@ -204,7 +252,7 @@
     .sep {
         height: 1px;
         margin: 6px 4px;
-        background: rgba(74, 58, 46, 0.08);
+        background: var(--border);
     }
 
     .zoomrow {

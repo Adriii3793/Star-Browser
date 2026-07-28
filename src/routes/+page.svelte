@@ -7,7 +7,11 @@
   import BroswerShell from '$lib/comp/broswer/BroswerShell.svelte';
   import WindowControls from '$lib/comp/broswer/WindowControls.svelte';
   import { windowChrome } from '$lib/stores/windowChrome.svelte';
+  import { theme } from '$lib/stores/theme.svelte';
   import '../app.css';
+
+  // Applies the saved theme's custom properties to <html> before anything paints.
+  theme.init();
 
   let setupDone = $state<boolean | null>(null);
   let os = $state<'macos' | 'windows' | 'linux'>('windows');
@@ -107,7 +111,6 @@
     overflow: hidden;
     background: var(--bg-chrome);
     border-radius: 0;
-    transition: border-radius 0.18s ease;
   }
 
   .app.rounded {
@@ -119,8 +122,8 @@
     align-items: stretch;
     height: 40px;
     flex-shrink: 0;
-    background: #f7f5f2;
-    border-bottom: 1px solid #e8e4de;
+    background: var(--bg-chrome);
+    border-bottom: 1px solid var(--border);
     user-select: none;
   }
 
@@ -144,7 +147,7 @@
     padding-left: 12px;
     font-size: 13px;
     font-weight: 500;
-    color: #321e1e;
+    color: var(--text);
   }
 
   .titlebar.mac .title {

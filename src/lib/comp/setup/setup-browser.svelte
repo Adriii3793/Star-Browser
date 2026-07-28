@@ -92,7 +92,7 @@
         width: 52px;
         height: 52px;
         border-radius: 14px;
-        background: var(--accent, #e8734a);
+        background: var(--accent, #80A4D4);
         color: #fff;
     }
 
