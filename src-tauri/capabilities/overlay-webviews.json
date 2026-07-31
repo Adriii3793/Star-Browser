@@ -1,0 +1,14 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "overlay-webviews",
+    "description": "Event permissions for the detached settings/history, menu, and permission-prompt overlay webviews.",
+    "webviews": [
+        "__panel_overlay__",
+        "__menu_overlay__",
+        "__permission_overlay__"
+    ],
+    "windows": [],
+    "permissions": [
+        "core:event:default"
+    ]
+}

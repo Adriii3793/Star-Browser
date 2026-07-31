@@ -63,6 +63,29 @@ export function onTabShortcut(
     return listen<TabShortcut>('tab-shortcut', (event) => handler(event.payload));
 }
 
+export interface DownloadStarted {
+    tabId: string;
+    fileName: string;
+}
+
+export interface DownloadFinished {
+    tabId: string;
+    fileName: string;
+    success: boolean;
+}
+
+export function onDownloadStarted(
+    handler: (download: DownloadStarted) => void
+): Promise<UnlistenFn> {
+    return listen<DownloadStarted>('download-started', (event) => handler(event.payload));
+}
+
+export function onDownloadFinished(
+    handler: (download: DownloadFinished) => void
+): Promise<UnlistenFn> {
+    return listen<DownloadFinished>('download-finished', (event) => handler(event.payload));
+}
+
 export function openMenuWebview(rect: DOMRect): Promise<void> {
     return call('open_menu_webview', {...bounds(rect)});
 }
@@ -71,7 +94,6 @@ export function closeMenuWebview(): Promise<void> {
     return call('close_menu_webview', {});
 }
 
-/** Full-window surface that hosts Settings/History above the page webview. */
 export function openOverlayWebview(rect: DOMRect): Promise<void> {
     return call('open_overlay_webview', {...bounds(rect)});
 }
@@ -95,4 +117,32 @@ export function tabPrint(tabId: string): Promise<void> {
 
 export function setTabZoomWebview(tabId: string, factor: number): Promise<void> {
     return call('set_tab_zoom', {tabId, factor});
+}
+
+export function setTabMutedWebview(tabId: string, muted: boolean): Promise<void> {
+    return call('set_tab_muted', {tabId, muted});
+}
+
+export function tabMediaToggle(tabId: string): Promise<void> {
+    return call('tab_media_toggle', {tabId});
+}
+
+export function tabStopMedia(tabId: string): Promise<void> {
+    return call('tab_stop_media', {tabId});
+}
+
+export function setAdblockEnabled(enabled: boolean): Promise<void> {
+    return call('set_adblock', {enabled});
+}
+
+export interface TabAudioChanged {
+    tabId: string;
+    audible: boolean;
+    muted: boolean;
+}
+
+export function onTabAudioChanged(
+    handler: (change: TabAudioChanged) => void
+): Promise<UnlistenFn> {
+    return listen<TabAudioChanged>('tab-audio-changed', (event) => handler(event.payload));
 }

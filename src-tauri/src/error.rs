@@ -32,6 +32,9 @@ pub enum AppError {
     #[error("error in the AI request")]
     AiRequest,
 
+    #[error("{0}")]
+    AiFailed(String),
+
     #[error("the AI took too long to respond. Please try again")]
     AiTimeout,
 
@@ -40,6 +43,9 @@ pub enum AppError {
 
     #[error("could not save your setup")]
     SetupSerialize,
+
+    #[error("could not save your tab session")]
+    TabSessionSerialize,
 
     #[error("could not open the default-apps settings")]
     DefaultBrowser,

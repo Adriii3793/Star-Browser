@@ -3,15 +3,35 @@
   import { invoke } from '@tauri-apps/api/core';
   import { platform as osPlatform } from '@tauri-apps/plugin-os';
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { LogicalSize } from '@tauri-apps/api/dpi';
   import Setup from '$lib/comp/setup/setup.svelte';
-  import BroswerShell from '$lib/comp/broswer/BroswerShell.svelte';
-  import WindowControls from '$lib/comp/broswer/WindowControls.svelte';
+  import BroswerShell from '$lib/comp/browser/BroswerShell.svelte';
+  import WindowControls from '$lib/comp/browser/WindowControls.svelte';
   import { windowChrome } from '$lib/stores/windowChrome.svelte';
   import { theme } from '$lib/stores/theme.svelte';
+  import { PRESET_THEMES, type Theme } from '$lib/stores/theme.svelte';
+  import { setup } from '$lib/stores/setup.svelte';
   import '../app.css';
 
-  // Applies the saved theme's custom properties to <html> before anything paints.
   theme.init();
+
+  function applySavedTheme() {
+    if (setup.data.theme === 'custom' && setup.data.customBg && setup.data.customSurface && setup.data.customAccent) {
+      const custom: Theme = {
+        id: 'custom',
+        name: 'Custom',
+        bg: setup.data.customBg,
+        surface: setup.data.customSurface,
+        accent: setup.data.customAccent,
+        image: setup.data.background
+      };
+      theme.set(custom);
+      return;
+    }
+    theme.set(PRESET_THEMES.some((item) => item.id === setup.data.theme) || setup.data.theme === 'system'
+      ? setup.data.theme
+      : 'light');
+  }
 
   let setupDone = $state<boolean | null>(null);
   let os = $state<'macos' | 'windows' | 'linux'>('windows');
@@ -31,8 +51,34 @@
   }
 
   function toggleMaximizeOnDrag(e: MouseEvent) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || setupDone !== true) return;
     windowChrome.toggle();
+  }
+
+  async function enterSetupWindowMode() {
+    const win = getCurrentWindow();
+    try {
+      await win.unmaximize().catch(() => {});
+      await win.setMaximizable(false);
+      await win.setResizable(false);
+      await win.setSize(new LogicalSize(880, 640));
+      await win.center();
+    } catch {
+    }
+  }
+
+  async function exitSetupWindowMode() {
+    const win = getCurrentWindow();
+    try {
+      await win.setResizable(true);
+      await win.setMaximizable(true);
+    } catch {
+    }
+  }
+
+  function completeSetup() {
+    setupDone = true;
+    void exitSetupWindowMode();
   }
 
   onMount(async () => {
@@ -49,6 +95,9 @@
       console.warn('is_setup_complete is not available', e);
       setupDone = true;
     }
+    await setup.load();
+    applySavedTheme();
+    if (setupDone === false) await enterSetupWindowMode();
   });
 </script>
 
@@ -74,14 +123,14 @@
       {#if setupDone === null}
         <p class="loading">Loading</p>
       {:else}
-        <Setup oncomplete={() => (setupDone = true)} />
+        <Setup oncomplete={completeSetup} />
       {/if}
     </main>
   {:else}
     <BroswerShell />
   {/if}
 
-  {#if !squared}
+  {#if !squared && setupDone === true}
     <button type="button" tabindex="-1" aria-label="Ridimensiona dall'alto" class="rz rz-n" onmousedown={(e) => startResize('North', e)}></button>
     <button type="button" tabindex="-1" aria-label="Ridimensiona dal basso" class="rz rz-s" onmousedown={(e) => startResize('South', e)}></button>
     <button type="button" tabindex="-1" aria-label="Ridimensiona da sinistra" class="rz rz-w" onmousedown={(e) => startResize('West', e)}></button>
@@ -125,6 +174,8 @@
     background: var(--bg-chrome);
     border-bottom: 1px solid var(--border);
     user-select: none;
+    position: relative;
+    z-index: 10001;
   }
 
   .tabs {

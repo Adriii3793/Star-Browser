@@ -15,7 +15,7 @@ export const DEFAULT_SETUP: SetupData = {
     name: '',
     avatar: null,
     searchEngine: 'google',
-    theme: 'light',
+    theme: 'system',
     background: null,
     customBg: null,
     customSurface: null,
@@ -37,7 +37,7 @@ export const SEARCH_ENGINES: SearchEngine[] = [
     { id: 'bing', name: 'Bing', initial: 'B', color: '#008373', url: 'https://www.bing.com/search?q=' }
 ];
 
-export const STEPS = ['loading', 'welcome', 'profile', 'search', 'style', 'browser', 'review'] as const;
+export const STEPS = ['loading', 'welcome', 'profile', 'search', 'style', 'review'] as const;
 export type Step = (typeof STEPS)[number];
 
 const FIRST_DOT_STEP = 2;

@@ -158,7 +158,17 @@
 
 	async function close() {
 		onclose?.();
-		await appWindow()?.close().catch(() => {});
+		const win = appWindow();
+		if (!win) return;
+		const force = setTimeout(() => {
+			void win.destroy().catch(() => {});
+		}, 1500);
+		try {
+			await win.close();
+		} catch {
+			clearTimeout(force);
+			await win.destroy().catch(() => {});
+		}
 	}
 
 	onMount(() => {

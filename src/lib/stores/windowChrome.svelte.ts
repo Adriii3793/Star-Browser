@@ -39,9 +39,6 @@ class WindowChromeStore {
 					await win.unmaximize();
 					this.maximized = false;
 				} else {
-					// Let Windows compute the fullscreen work-area bounds for a
-					// transparent frameless window. Manual size/position math left a
-					// visible empty strip on the left edge after maximizing.
 					this.maximized = true;
 					await win.maximize();
 				}
@@ -61,7 +58,7 @@ class WindowChromeStore {
 		const win = getCurrentWindow();
 		try {
 			if (this.#os === 'windows') {
-				this.maximized = await win.isMaximized();
+				this.maximized = (await win.isMaximized()) || (await win.isFullscreen());
 			} else {
 				this.maximized = (await win.isMaximized()) || (await win.isFullscreen());
 			}

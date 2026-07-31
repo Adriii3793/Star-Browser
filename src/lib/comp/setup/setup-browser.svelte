@@ -10,9 +10,6 @@
     async function makeDefault() {
         status = 'working';
         try {
-            // Resolves true only where the OS still allows setting this
-            // programmatically (Linux). Windows and macOS open their settings
-            // panel instead, so the user completes the change themselves.
             const applied = await setDefaultBrowser();
             status = applied ? 'applied' : 'opened';
         } catch {

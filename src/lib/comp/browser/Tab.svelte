@@ -1,21 +1,35 @@
 <script lang="ts">
 	let {
 		title,
+		index,
 		active = false,
 		favicon = '',
+		muted = false,
+		audible = false,
 		closable = true,
 		dragging = false,
+		inGroup = false,
+		groupColor = '',
+		groupTarget = false,
 		onselect,
 		onclose,
+		onmutetoggle,
 		onpointerdown
 	}: {
 		title: string;
+		index: number;
 		active?: boolean;
 		favicon?: string;
+		muted?: boolean;
+		audible?: boolean;
 		closable?: boolean;
 		dragging?: boolean;
+		inGroup?: boolean;
+		groupColor?: string;
+		groupTarget?: boolean;
 		onselect: () => void;
 		onclose: () => void;
+		onmutetoggle?: () => void;
 		onpointerdown?: (e: PointerEvent) => void;
 	} = $props();
 
@@ -23,7 +37,7 @@
 	$effect(() => { void favicon; iconFailed = false; })
 
 	function press(e: PointerEvent) {
-		if (e.target instanceof Element && e.target.closest('[data-close]')) return;
+		if (e.target instanceof Element && e.target.closest('[data-close], [data-audio]')) return;
 		onpointerdown?.(e);
 	}
 
@@ -47,6 +61,11 @@
 	class="tab"
 	class:active
 	class:dragging
+	class:groupTarget
+	class:in-group={inGroup}
+	class:grouped={Boolean(groupColor)}
+	data-tab-index={index}
+	style:--group-color={groupColor || 'transparent'}
 	role="tab"
 	aria-selected={active}
 	tabindex={active ? 0 : -1}
@@ -66,6 +85,29 @@
 			</svg>
 		{/if}
 	</span>
+
+	{#if muted || audible}
+		<button
+			class="audio"
+			data-audio
+			type="button"
+			tabindex="-1"
+			aria-label={muted ? 'Unmute tab' : 'Mute tab'}
+			title={muted ? 'Unmute tab' : 'Mute tab'}
+			onclick={(e) => { e.stopPropagation(); onmutetoggle?.(); }}
+		>
+			{#if muted}
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l4-4v14z" />
+					<path d="M3 3l18 18" />
+				</svg>
+			{:else}
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M15 8a5 5 0 0 1 0 8M17.7 5a9 9 0 0 1 0 14M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l4-4v14z" />
+				</svg>
+			{/if}
+		</button>
+	{/if}
 
 	<span class="label">{title}</span>
 
@@ -90,51 +132,54 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		flex: 0 1 auto;
-		width: 144px;
-		min-width: 112px;
-		height: 32px;
-		padding: 0 8px;
-		border-radius: 8px;
+		gap: 7px;
+		flex: 0 1 132px;
+		width: auto;
+		min-width: 84px;
+		max-width: 168px;
+		height: 30px;
+		padding: 0 7px 0 9px;
+		border: 0;
+		border-radius: 9px;
 		background: transparent;
-		color: var(--text, #444);
-		font-size: 13px;
+		color: var(--text-soft);
+		font-size: 12px;
 		font-weight: 500;
-		font-family:
-			Inter,
-			-apple-system,
-			BlinkMacSystemFont,
-			'SF Pro Text',
-			'Segoe UI',
-			sans-serif;
-		box-sizing: border-box;
-		user-select: none;
-		touch-action: none;
 		cursor: default;
-		transition: background-color 150ms ease-in-out;
+		transition: background-color 150ms ease, color 150ms ease, height 150ms cubic-bezier(.32, .72, 0, 1), max-width 150ms cubic-bezier(.32, .71, 0, 1), box-shadow 150ms ease;
+		animation: tab-in 160ms cubic-bezier(.32, .72, 0,);
 	}
 
-    .tab:not(:last-child) {
-        border-right: 1px solid var(--hover);
-    }
+	@keyframes tab-in {
+		from { opacity: 0; transform: scale(.92);}
+	}
 
-    .tab:hover,
-    .tab.active {
-        border-right-color:transparent;
-    }
-
-    
+	.tab.in-group {
+		max-width: 132px;
+	}
 	.tab:not(.active):hover {
 		background: var(--hover);
+		color: var(--text);
 	}
 
 	.tab.active {
+		z-index: 2;
+		height: 34px;
+		max-width: 190px;
 		background: var(--tab-active, #ffffff);
+		color: var(--text);
+		font-weight: 600;
+		border-radius: 10px;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 5px 14px var(--shadow);
 	}
 
 	.tab.dragging {
 		opacity: 0.7;
+	}
+	.tab.groupTarget {
+		outline: 2px solid var(--accent);
+		outline-offset: -2px;
+		background: var(--tab-hover);
 	}
 
 	.tab:focus-visible {
@@ -145,8 +190,8 @@
 	.icon {
 		display: flex;
 		flex: 0 0 auto;
-		width: 16px; 
-		height: 16px;
+		width: 15px;
+		height: 15px;
 	}
 	.icon img {
 		width: 100%;
@@ -167,6 +212,35 @@
 		opacity: 0.75;
 	}
 
+	.audio {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 auto;
+		width: 16px;
+		height: 16px;
+		padding: 0;
+		border: 0;
+		border-radius: 5px;
+		background: transparent;
+		color: inherit;
+		cursor: default;
+		opacity: 0.7;
+	}
+	.audio:hover {
+		background: var(--hover);
+		opacity: 1;
+	}
+	.audio svg {
+		width: 12px;
+		height: 12px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 1.8;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+
 	.label {
 		flex: 1;
 		min-width: 0;
@@ -181,11 +255,11 @@
 		align-items: center;
 		justify-content: center;
 		flex: 0 0 auto;
-		width: 24px;
-		height: 24px;
+		width: 19px;
+		height: 19px;
 		padding: 0;
 		border: 0;
-		border-radius: 8px;
+		border-radius: 6px;
 		background: transparent;
 		color: inherit;
 		cursor: default;
@@ -195,8 +269,8 @@
 			background-color 150ms ease-in-out;
 	}
 	.close svg {
-		width: 12px;
-		height: 12px;
+		width: 11px;
+		height: 11px;
 		fill: none;
 		stroke: currentColor;
 		stroke-width: 2;

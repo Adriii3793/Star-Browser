@@ -13,6 +13,14 @@ export const PRESET_THEMES: Theme[] = [
     { id: 'sand', name: 'Sand', bg: '#f2e8dc', surface: '#fdf9f4', accent: '#b8763f' }
 ];
 
+export const SYSTEM_THEME: Theme = {
+    id: 'system',
+    name: 'System',
+    bg: '#6b7280',
+    surface: '#f8fafc',
+    accent: '#80A4D4'
+};
+
 export function luminance(hex: string): number {
     const h = hex.replace('#', '').trim();
     const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
@@ -23,9 +31,6 @@ export function luminance(hex: string): number {
 }
 
 export function readableText(bgHex: string): string {
-    // Compare actual contrast ratios rather than thresholding luminance at 0.5.
-    // A mid-tone accent like #80A4D4 sits below 0.5 but still reads far better with
-    // dark text (8.1:1) than white (2.6:1), which the old threshold got backwards.
     const l = luminance(bgHex);
     const withWhite = 1.05 / (l + 0.05);
     const withBlack = (l + 0.05) / 0.05;
@@ -58,11 +63,6 @@ export function imageLuminance(dataUrl: string): Promise<number> {
     });
 }
 
-/* ---- runtime theme application -------------------------------------------
-   The setup wizard used to write `setup.data.theme` and nothing ever read it back,
-   so picking "Dark" changed nothing once the browser opened. Everything below turns
-   a Theme into the CSS custom properties the components already consume. */
-
 const STORAGE_KEY = 'star.theme';
 
 function toRgb(hex: string): [number, number, number] {
@@ -75,7 +75,6 @@ function toHex(rgb: [number, number, number]): string {
     return '#' + rgb.map((c) => Math.round(Math.max(0, Math.min(255, c))).toString(16).padStart(2, '0')).join('');
 }
 
-/** Blend `amount` of `b` into `a`. */
 export function mix(a: string, b: string, amount: number): string {
     const [r1, g1, b1] = toRgb(a);
     const [r2, g2, b2] = toRgb(b);
@@ -87,7 +86,6 @@ export function isDark(t: Theme): boolean {
     return luminance(t.surface) < 0.5;
 }
 
-/** Every custom property the UI reads, derived from a theme's three base colours. */
 export function themeVars(t: Theme): Record<string, string> {
     const dark = isDark(t);
     const text = readableText(t.surface);
@@ -111,7 +109,6 @@ export function themeVars(t: Theme): Record<string, string> {
         '--hover': dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
         '--overlay': dark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(74, 58, 46, 0.28)',
         '--shadow': dark ? 'rgba(0, 0, 0, 0.55)' : 'rgba(74, 58, 46, 0.16)',
-        // Lets form controls and scrollbars follow the theme automatically.
         'color-scheme': dark ? 'dark' : 'light'
     };
 }
@@ -128,40 +125,66 @@ export function applyThemeVars(t: Theme, target?: HTMLElement) {
 
 class ThemeStore {
     current = $state<Theme>(PRESET_THEMES[0]);
+    preference = $state<string>('light');
 
     #loaded = false;
+    #media: MediaQueryList | null = null;
 
     init() {
         if (this.#loaded) return;
         this.#loaded = true;
-        this.current = this.#load() ?? PRESET_THEMES[0];
-        applyThemeVars(this.current);
+        this.#media = typeof window === 'undefined' ? null : window.matchMedia('(prefers-color-scheme: dark)');
+        this.#media?.addEventListener('change', () => {
+            if (this.preference !== 'system') return;
+            this.current = this.#resolve('system');
+            applyThemeVars(this.current);
+        });
+
+        const stored = this.#load();
+        if (stored) this.#apply(stored, false);
+        else applyThemeVars(this.current);
     }
 
-    /** Select by preset id, or pass a full custom Theme. */
     set(next: Theme | string) {
-        const theme =
-            typeof next === 'string'
-                ? PRESET_THEMES.find((p) => p.id === next) ?? this.current
-                : next;
-        this.current = theme;
-        applyThemeVars(theme);
+        this.#apply(next, true);
+    }
+
+    #apply(next: Theme | string, save: boolean) {
+        this.preference = typeof next === 'string' ? next : next.id;
+        this.current = this.#resolve(next);
+        applyThemeVars(this.current);
+        if (!save) return;
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(theme));
-        } catch {
-            /* storage full or unavailable: the theme still applies for this session */
-        }
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ preference: this.preference, theme: next }));
+        } catch {}
     }
 
     get dark(): boolean {
         return isDark(this.current);
     }
 
-    #load(): Theme | null {
+    #resolve(next: Theme | string): Theme {
+        if (next === 'system') {
+            const useDark = this.#media?.matches ?? false;
+            return { ...(useDark ? PRESET_THEMES[1] : PRESET_THEMES[0]), id: 'system', name: 'System' };
+        }
+        if (typeof next === 'string') {
+            return PRESET_THEMES.find((theme) => theme.id === next) ?? this.current;
+        }
+        return next;
+    }
+
+    #load(): Theme | string | null {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
             if (!raw) return null;
             const t = JSON.parse(raw);
+            if (typeof t === 'string') return t;
+            if (typeof t?.preference === 'string') {
+                return t.preference === 'custom' && t.theme && typeof t.theme === 'object'
+                    ? t.theme as Theme
+                    : t.preference;
+            }
             if (typeof t?.bg !== 'string' || typeof t?.surface !== 'string') return null;
             return t as Theme;
         } catch {

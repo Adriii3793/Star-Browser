@@ -4045,6 +4045,8 @@ dependencies = [
  "tauri-plugin-window-state",
  "thiserror 2.0.19",
  "url",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

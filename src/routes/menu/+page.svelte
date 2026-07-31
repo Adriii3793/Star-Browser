@@ -1,12 +1,10 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import BrowserMenu from '$lib/comp/broswer/BrowserMenu.svelte';
+    import BrowserMenu from '$lib/comp/browser/BrowserMenu.svelte';
     import { emit, listen } from '@tauri-apps/api/event';
 
     let zoom = $state(100);
     let anchor = $state({ x: 6, y: 44 });
-    // The webview is now reused rather than rebuilt, so the component no longer
-    // remounts on each open. Bumping this key remounts it so the open animation replays.
     let openToken = $state(0);
 
     function send(action: string) {
@@ -25,8 +23,6 @@
             anchor = e.payload;
             openToken += 1;
         });
-        // This webview has its own document, so the shell sends the resolved theme
-        // variables and we write them onto <html> here.
         const unlistenTheme = listen<Record<string, string>>('menu-theme', (e) => {
             const root = document.documentElement;
             for (const [key, value] of Object.entries(e.payload ?? {})) {
@@ -34,8 +30,6 @@
             }
         });
 
-        // Only announce readiness once every listener is registered, otherwise the
-        // shell's first burst of state can arrive before we are listening for it.
         Promise.all([unlistenZoom, unlistenPosition, unlistenTheme]).then(() =>
             emit('menu-ready', {})
         );
@@ -54,6 +48,7 @@
             onclose={close}
             onnewtab={() => send('newtab')}
             onhistory={() => send('history')}
+            ondownloads={() => send('downloads')}
             oncleardata={() => send('cleardata')}
             onprint={() => send('print')}
             onfullscreen={() => send('fullscreen')}
@@ -68,15 +63,10 @@
 </div>
 
 <style>
-    /* This route renders in its own webview, which never loads app.css. Without the
-       border-box reset the menu rows measure padding on top of their 100% width and
-       overflow the panel, which is what produced the stray horizontal scrollbar. */
     :global(*) {
         box-sizing: border-box;
     }
 
-    /* Light defaults for this standalone webview. The shell overwrites them with the
-       live theme as inline styles on <html>, which take priority over these. */
     :global(:root) {
         --bg-page: #ffffff;
         --text: #4a3a2e;

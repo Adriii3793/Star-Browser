@@ -20,8 +20,6 @@ fn shortcut_bindings() -> Vec<(Shortcut, &'static str)> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Dev convenience only: this relative path resolves when running from src-tauri/.
-    // Installed builds get the key from the value build.rs embedded (see commands::ai).
     let _ = dotenvy::from_filename("../.env");
     let _ = dotenvy::dotenv();
 
@@ -46,6 +44,8 @@ pub fn run() {
         db: pool,
         views: Mutex::new(HashMap::new()),
     });
+    app.manage(commands::webview::PermissionRegistry::default());
+    commands::webview::grant_main_window_media(app.handle());
     let handle = app.handle().clone();
     for (shortcut, action) in shortcut_bindings() {
         let action = action.to_string();
@@ -79,6 +79,8 @@ pub fn run() {
         commands::webview::close_overlay_webview,
         commands::ai::usage_status,
         commands::ai::ai_chat,
+        commands::ai::stt_status,
+        commands::ai::stt_transcribe,
         commands::page::fetch_page_context,
         commands::setup::is_setup_complete,
         commands::setup::save_setup,
@@ -92,6 +94,14 @@ pub fn run() {
         commands::webview::tab_reload,
         commands::webview::tab_print,
         commands::webview::set_tab_zoom,
+        commands::webview::set_tab_muted,
+        commands::webview::tab_media_toggle,
+        commands::webview::tab_stop_media,
+        commands::webview::set_adblock,
+        commands::webview::pending_permission,
+        commands::webview::current_permission,
+        commands::tabs::save_tab_session,
+        commands::tabs::load_tab_session,
     ])
     .run(tauri::generate_context!())
     .expect("Errore Avvio")

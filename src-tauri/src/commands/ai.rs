@@ -9,7 +9,18 @@ use crate::state::AppState;
 
 const DAILY_LIMIT: i64 = 50;
 const WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
-const MODEL: &str = "google/gemma-4-26b-a4b-it:free";
+const MODELS: &[&str] = &[
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "google/gemma-4-26b-a4b-it:free",
+];
+const DEFAULT_MODEL: &str = MODELS[0];
+
+fn resolve_model(requested: Option<&str>) -> &'static str {
+    requested
+        .map(str::trim)
+        .and_then(|name| MODELS.iter().find(|known| **known == name).copied())
+        .unwrap_or(DEFAULT_MODEL)
+}
 
 const AI_TIMEOUT: Duration = Duration::from_secs(90);
 const AI_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -29,16 +40,12 @@ fn http_client() -> Result<&'static reqwest::Client, AppError> {
 }
 
 fn api_key() -> Result<String, AppError> {
-    // A runtime variable always wins, so a packaged build can still be pointed at a
-    // different key without rebuilding.
     if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
         if !key.trim().is_empty() {
             return Ok(key.trim().to_string());
         }
     }
 
-    // Otherwise fall back to the key build.rs baked in. Installed builds have no .env
-    // next to them, which is why this is needed at all.
     match option_env!("STAR_EMBEDDED_API_KEY") {
         Some(key) if !key.trim().is_empty() => Ok(key.trim().to_string()),
         _ => Err(AppError::MissingApiKey),
@@ -76,6 +83,102 @@ pub async fn usage_status(state: State<'_, AppState>) -> Result<UsageStatus, App
     }) 
 }
 
+const OMNI_MODEL: &str = MODELS[0];
+
+const TRANSCRIBE_PROMPT: &str = "Transcribe the audio exactly as spoken, in its original language. \
+Return only the transcript with no translation, no commentary, no quotation marks. \
+If the audio contains no intelligible speech, return an empty response.";
+
+#[derive(Serialize)]
+pub struct SttStatus {
+    pub available: bool,
+    pub model: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[tauri::command]
+pub async fn stt_status() -> Result<SttStatus, AppError> {
+    match api_key() {
+        Ok(_) => Ok(SttStatus {
+            available: true,
+            model: Some(OMNI_MODEL.to_string()),
+            reason: None,
+        }),
+        Err(_) => Ok(SttStatus {
+            available: false,
+            model: None,
+            reason: Some("No API key configured, voice input is unavailable".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
+pub async fn stt_transcribe(
+    state: State<'_, AppState>,
+    audio_base64: String,
+    lang: Option<String>,
+) -> Result<String, AppError> {
+    if audio_base64.trim().is_empty() {
+        return Ok(String::new());
+    }
+
+    let used = requests_in_window(&state).await?;
+    if used >= DAILY_LIMIT {
+        return Err(AppError::RateLimited);
+    }
+
+    let key = api_key()?;
+
+    let mut instruction = TRANSCRIBE_PROMPT.to_string();
+    if let Some(code) = lang.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+        instruction.push_str(&format!(" The expected language is {code}."));
+    }
+
+    let body = serde_json::json!({
+        "model": OMNI_MODEL,
+        "messages": [{
+            "role": "user",
+            "content": [
+                { "type": "text", "text": instruction },
+                { "type": "input_audio", "input_audio": { "data": audio_base64, "format": "wav" } }
+            ]
+        }]
+    });
+
+    let response = http_client()?
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .header("Authorization", format!("Bearer {key}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| if e.is_timeout() { AppError::AiTimeout } else { AppError::AiRequest })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::AiFailed(describe_failure(status, &body)));
+    }
+
+    let raw = response.text().await.map_err(|_| AppError::AiRequest)?;
+    let parsed: ChatResponse = serde_json::from_str(&raw)
+        .map_err(|_| AppError::AiFailed(describe_failure(status, &raw)))?;
+
+    let text = parsed
+        .choices
+        .into_iter()
+        .next()
+        .map(|choice| content_to_text(&choice.message.content))
+        .unwrap_or_default();
+
+    sqlx::query("INSERT INTO usage_log (used_at) VALUES (?1)")
+        .bind(now_millis())
+        .execute(&state.db)
+        .await?;
+
+    Ok(text.trim().trim_matches('"').to_string())
+}
+
 #[derive(Serialize)]
 struct ChatRequest <'a> {
     model: &'a str,
@@ -97,6 +200,24 @@ struct Choice {
     message: ChatMessage,
 }
 
+fn describe_failure(status: reqwest::StatusCode, body: &str) -> String {
+    let detail = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("error")
+                .and_then(|e| e.get("message").or(Some(e)))
+                .map(|m| m.as_str().map(str::to_string).unwrap_or_else(|| m.to_string()))
+        })
+        .unwrap_or_else(|| body.chars().take(300).collect());
+
+    let detail = detail.trim();
+    if detail.is_empty() {
+        format!("AI request failed ({status})")
+    } else {
+        format!("AI request failed ({status}): {detail}")
+    }
+}
+
 fn content_to_text(content: &Value) -> String {
     match content {
         Value::String(s) => s.clone(),
@@ -113,7 +234,7 @@ fn content_to_text(content: &Value) -> String {
 pub async fn ai_chat(
     state: State<'_, AppState>,
     messages: Vec<ChatMessage>,
-
+    model: Option<String>,
 ) -> Result<String, AppError> {
     let used = requests_in_window(&state).await?;
     if used >= DAILY_LIMIT {
@@ -123,7 +244,7 @@ pub async fn ai_chat(
     let key = api_key()?;
 
     let body = ChatRequest {
-        model: MODEL,
+        model: resolve_model(model.as_deref()),
         messages,
     };
 
@@ -136,11 +257,15 @@ pub async fn ai_chat(
         .await
         .map_err(|e| if e.is_timeout() { AppError::AiTimeout } else { AppError::AiRequest })?;
 
-    if !response.status().is_success() {
-        return Err(AppError::AiRequest);
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::AiFailed(describe_failure(status, &body)));
     }
 
-    let parsed: ChatResponse = response.json().await.map_err(|_| AppError::AiRequest)?;
+    let raw = response.text().await.map_err(|_| AppError::AiRequest)?;
+    let parsed: ChatResponse = serde_json::from_str(&raw)
+        .map_err(|_| AppError::AiFailed(describe_failure(status, &raw)))?;
 
     let reply = parsed
         .choices

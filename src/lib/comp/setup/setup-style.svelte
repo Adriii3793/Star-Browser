@@ -3,9 +3,12 @@
     import { setup } from '$lib/stores/setup.svelte';
     import {
         PRESET_THEMES,
+        SYSTEM_THEME,
         readableText,
         imageLuminance,
         parseTheme,
+        luminance,
+        mix,
         theme as themeStore,
         type Theme
     } from '$lib/stores/theme.svelte';
@@ -18,7 +21,7 @@
     let error = $state<string | null>(null);
 
     let themes = $derived.by<Theme[]>(() => {
-        const list = [...PRESET_THEMES];
+        const list = [SYSTEM_THEME, ...PRESET_THEMES];
         if (setup.data.customBg && setup.data.customSurface && setup.data.customAccent) {
             list.push({
                 id: 'custom',
@@ -32,7 +35,11 @@
         return list;
     });
 
-    let active = $derived(themes.find((t) => t.id === setup.data.theme) ?? themes[0]);
+    let active = $derived(
+        setup.data.theme === 'system'
+            ? themeStore.current
+            : themes.find((t) => t.id === setup.data.theme) ?? themes[1]
+    );
     let engine = $derived(setup.engine);
 
     $effect(() => {
@@ -47,9 +54,7 @@
     function selectTheme(t: Theme) {
         setup.data.theme = t.id;
         setup.data.background = t.image ?? null;
-        // Apply immediately so the choice is visible right away and persists
-        // into the browser rather than being written and never read.
-        themeStore.set(t);
+        themeStore.set(t.id === 'system' ? 'system' : t);
     }
 
     function pickBackground(e: Event) {
@@ -74,6 +79,22 @@
             });
         };
         r.readAsDataURL(file);
+    }
+
+    function applyCustomColors(bg: string, accent: string) {
+        const surface = mix(bg, '#ffffff', luminance(bg) < 0.5 ? 0.07 : 0.6);
+        setup.data.customBg = bg;
+        setup.data.customSurface = surface;
+        setup.data.customAccent = accent;
+        setup.data.theme = 'custom';
+        themeStore.set({
+            id: 'custom',
+            name: 'Custom',
+            bg,
+            surface,
+            accent,
+            image: setup.data.background
+        });
     }
 
     function importTheme(e: Event) {
@@ -124,7 +145,7 @@
                 class="sw"
                 class:on={setup.data.theme === t.id}
                 type="button"
-                style="background:{t.bg}"
+                style="background:{t.id === 'system' ? 'linear-gradient(135deg, #f8fafc 0 50%, #292524 50% 100%)' : t.bg}"
                 aria-label={t.name}
                 onclick={() => selectTheme(t)}
             >
@@ -134,6 +155,25 @@
         <button class="sw add" type="button" aria-label="Upload background" onclick={() => bgFileEl?.click()}>
             +
         </button>
+    </div>
+
+    <div class="customrow">
+        <label class="colorpick">
+            <input
+                type="color"
+                value={setup.data.customBg ?? '#faf7f7'}
+                oninput={(e) => applyCustomColors(e.currentTarget.value, setup.data.customAccent ?? '#80A4D4')}
+            />
+            <span>Custom color</span>
+        </label>
+        <label class="colorpick">
+            <input
+                type="color"
+                value={setup.data.customAccent ?? '#80A4D4'}
+                oninput={(e) => applyCustomColors(setup.data.customBg ?? '#faf7f7', e.currentTarget.value)}
+            />
+            <span>Accent</span>
+        </label>
     </div>
 
     <button class="link" type="button" onclick={() => themeFileEl?.click()}>Import a theme file…</button>
@@ -263,6 +303,30 @@
         background: var(--field);
         color: var(--text-muted);
         font-size: 20px;
+    }
+
+    .customrow {
+        display: flex;
+        gap: 14px;
+    }
+
+    .colorpick {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        color: var(--text-soft);
+        cursor: pointer;
+    }
+
+    .colorpick input {
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        border: 2px solid var(--border);
+        border-radius: 9px;
+        background: none;
+        cursor: pointer;
     }
 
     .link {

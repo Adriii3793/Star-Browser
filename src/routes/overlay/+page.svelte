@@ -1,14 +1,13 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import Settings from '$lib/comp/broswer/Settings.svelte';
-    import History from '$lib/comp/broswer/History.svelte';
+    import Settings from '$lib/comp/browser/Settings.svelte';
+    import History from '$lib/comp/browser/History.svelte';
+    import Downloads from '$lib/comp/browser/Downloads.svelte';
     import { emit, listen } from '@tauri-apps/api/event';
 
-    // Hosts Settings and History in their own webview so they float above the page a tab
-    // is showing. As DOM inside the main webview they were always painted over by the
-    // tab's native child webview.
-    type Kind = 'settings' | 'history' | null;
+    type Kind = 'settings' | 'history' | 'downloads' | null;
     let kind = $state<Kind>(null);
+    let settings = $state({ themeId: 'light', searchEngine: 'google' });
 
     function close() {
         kind = null;
@@ -21,8 +20,14 @@
     }
 
     onMount(() => {
-        const unlistenShow = listen<{ kind: Kind }>('overlay-show', (e) => {
+        const unlistenShow = listen<{ kind: Kind; themeId?: string; searchEngine?: string }>('overlay-show', (e) => {
             kind = e.payload?.kind ?? null;
+            if (e.payload?.themeId || e.payload?.searchEngine) {
+                settings = {
+                    themeId: e.payload.themeId ?? settings.themeId,
+                    searchEngine: e.payload.searchEngine ?? settings.searchEngine
+                };
+            }
         });
         const unlistenTheme = listen<Record<string, string>>('overlay-theme', (e) => {
             const root = document.documentElement;
@@ -40,13 +45,14 @@
 </script>
 
 {#if kind === 'settings'}
-    <Settings onclose={close} />
+    <Settings onclose={close} themeId={settings.themeId} searchEngine={settings.searchEngine} />
 {:else if kind === 'history'}
     <History onclose={close} onopen={openUrl} />
+{:else if kind === 'downloads'}
+    <Downloads onclose={close} />
 {/if}
 
 <style>
-    /* This route renders in its own webview and never loads app.css. */
     :global(*) {
         box-sizing: border-box;
     }

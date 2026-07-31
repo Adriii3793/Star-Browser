@@ -3,6 +3,7 @@
         onclose,
         onnewtab,
         onhistory,
+        ondownloads,
         oncleardata,
         onprint,
         onfullscreen,
@@ -15,6 +16,7 @@
         onclose: () => void;
         onnewtab: () => void;
         onhistory: () => void;
+        ondownloads?: () => void;
         oncleardata: () => void;
         onprint: () => void;
         onfullscreen: () => void;
@@ -58,6 +60,15 @@
         </svg>
         <span class="label">History</span>
         <span class="shortcut">Ctrl+H</span>
+    </button>
+
+    <button class="item" role="menuitem" onclick={() => run(ondownloads ?? (() => {}))}>
+        <svg class="ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12" />
+            <path d="M7 10l5 5 5-5" />
+            <path d="M5 20h14" />
+        </svg>
+        <span class="label">Downloads</span>
     </button>
 
     <button class="item" role="menuitem" onclick={() => run(oncleardata)}>
@@ -128,9 +139,6 @@
         background: transparent;
     }
 
-    /* No custom properties are declared here on purpose: the menu route defines the
-       defaults on :root, and the shell overwrites them with the live theme as inline
-       styles on <html>. Declaring them here would shadow both. */
     .menu {
         font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
         -webkit-font-smoothing: antialiased;
@@ -142,7 +150,6 @@
         width: 300px;
         max-height: min(560px, calc(100vh - 90px));
         overflow-y: auto;
-        /* Without this the menu grows a stray horizontal scrollbar along its bottom edge. */
         overflow-x: hidden;
         padding: 6px;
         background: var(--bg-page, #fff);
@@ -153,7 +160,6 @@
         animation: menu-in 0.18s cubic-bezier(0.32, 0.72, 0, 1);
     }
 
-    /* Drops in from just under the chevron as it flips up. */
     @keyframes menu-in {
         from {
             opacity: 0;
@@ -165,7 +171,6 @@
         }
     }
 
-    /* Items stagger in behind the panel so the menu feels like it unfolds. */
     .item,
     .sep {
         animation: item-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) backwards;

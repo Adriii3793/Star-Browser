@@ -4,7 +4,6 @@
     import SetupUser from './setup-user.svelte';
     import SetupSearch from './setup-search.svelte';
     import SetupStyle from './setup-style.svelte';
-    import SetupBrowser from './setup-browser.svelte';
     import Review from './review.svelte';
     import { setup, DOT_COUNT } from '$lib/stores/setup.svelte';
 
@@ -18,7 +17,19 @@
         saving = false;
         oncomplete();
     }
+
+    function handleEnter(e: KeyboardEvent) {
+        if (e.key !== 'Enter' || e.repeat) return;
+        if (setup.step === 'loading' || saving) return;
+        const target = e.target as HTMLElement | null;
+        if (target instanceof HTMLButtonElement || target instanceof HTMLTextAreaElement) return;
+        e.preventDefault();
+        if (setup.step === 'review') void finish();
+        else setup.next();
+    }
 </script>
+
+<svelte:window onkeydown={handleEnter} />
 
 <div class="shell">
     {#if setup.dotIndex >= 0}
@@ -30,7 +41,10 @@
                 disabled={!setup.canGoBack}
                 onclick={() => setup.back()}
             >
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6l6 6" /></svg>
+               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="19" y1="12" x2="5" y2="12"></line>
+    <polyline points="12 19 5 12 12 5"></polyline>
+  </svg>
             </button>
             <div class="dots">
                 {#each Array(DOT_COUNT) as _, i}
@@ -51,8 +65,6 @@
             <SetupSearch onnext={() => setup.next()} />
         {:else if setup.step === 'style'}
             <SetupStyle onnext={() => setup.next()} />
-        {:else if setup.step === 'browser'}
-            <SetupBrowser onnext={() => setup.next()} />
         {:else if setup.step === 'review'}
             <Review onfinish={finish} busy={saving} />
         {/if}

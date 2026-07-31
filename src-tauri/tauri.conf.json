@@ -27,7 +27,7 @@
       }
     ],
     "security": {
-      "capabilities": ["main"],
+      "capabilities": ["main", "overlay-webviews", "tab-content"],
       "csp": null
     }
   },
