@@ -8,6 +8,7 @@
 		audible = false,
 		closable = true,
 		dragging = false,
+		dragOffset = 0,
 		inGroup = false,
 		groupColor = '',
 		groupTarget = false,
@@ -24,6 +25,7 @@
 		audible?: boolean;
 		closable?: boolean;
 		dragging?: boolean;
+		dragOffset?: number;
 		inGroup?: boolean;
 		groupColor?: string;
 		groupTarget?: boolean;
@@ -34,7 +36,7 @@
 	} = $props();
 
 	let iconFailed = $state(false);
-	$effect(() => { void favicon; iconFailed = false; })
+	$effect(() => { void favicon; iconFailed = false; });
 
 	function press(e: PointerEvent) {
 		if (e.target instanceof Element && e.target.closest('[data-close], [data-audio]')) return;
@@ -51,7 +53,7 @@
 		}
 	}
 
-	function close(e:MouseEvent) {
+	function close(e: MouseEvent) {
 		e.stopPropagation();
 		onclose();
 	}
@@ -61,11 +63,11 @@
 	class="tab"
 	class:active
 	class:dragging
-	class:groupTarget
+	class:group-target={groupTarget}
 	class:in-group={inGroup}
-	class:grouped={Boolean(groupColor)}
 	data-tab-index={index}
 	style:--group-color={groupColor || 'transparent'}
+	style:transform={dragging ? `translateX(${dragOffset}px)` : undefined}
 	role="tab"
 	aria-selected={active}
 	tabindex={active ? 0 : -1}
@@ -117,7 +119,7 @@
 			data-close
 			type="button"
 			tabindex="-1"
-			aria-label="Close Tab"
+			aria-label="Close tab"
 			onclick={close}
 		>
 			<svg viewBox="0 0 24 24" aria-hidden="true">
@@ -130,15 +132,16 @@
 <style>
 	.tab {
 		position: relative;
+		z-index: 1;
 		display: flex;
 		align-items: center;
-		gap: 7px;
-		flex: 0 1 132px;
+		gap: 8px;
+		flex: 1 1 210px;
 		width: auto;
-		min-width: 84px;
-		max-width: 168px;
-		height: 30px;
-		padding: 0 7px 0 9px;
+		min-width: 58px;
+		max-width: 320px;
+		height: 34px;
+		padding: 0 8px 0 10px;
 		border: 0;
 		border-radius: 9px;
 		background: transparent;
@@ -146,17 +149,26 @@
 		font-size: 12px;
 		font-weight: 500;
 		cursor: default;
-		transition: background-color 150ms ease, color 150ms ease, height 150ms cubic-bezier(.32, .72, 0, 1), max-width 150ms cubic-bezier(.32, .71, 0, 1), box-shadow 150ms ease;
-		animation: tab-in 160ms cubic-bezier(.32, .72, 0,);
+		user-select: none;
+		-webkit-user-select: none;
+		transition:
+			background-color 150ms ease,
+			color 150ms ease,
+			height 150ms cubic-bezier(.32, .72, 0, 1),
+			box-shadow 150ms ease;
+		animation: tab-in 160ms cubic-bezier(.32, .72, 0, 1);
 	}
 
 	@keyframes tab-in {
-		from { opacity: 0; transform: scale(.92);}
+		from { opacity: 0; transform: scale(.94); }
 	}
 
 	.tab.in-group {
-		max-width: 132px;
+		flex-basis: 200px;
+		min-width: 54px;
+		max-width: 290px;
 	}
+
 	.tab:not(.active):hover {
 		background: var(--hover);
 		color: var(--text);
@@ -164,9 +176,9 @@
 
 	.tab.active {
 		z-index: 2;
-		height: 34px;
-		max-width: 190px;
-		background: var(--tab-active, #ffffff);
+		height: 38px;
+		max-width: 400px;
+		background: var(--tab-active);
 		color: var(--text);
 		font-weight: 600;
 		border-radius: 10px;
@@ -174,16 +186,30 @@
 	}
 
 	.tab.dragging {
-		opacity: 0.7;
+		z-index: 30;
+		background: var(--tab-active);
+		color: var(--text);
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.10), 0 10px 26px var(--shadow);
+		transition: none;
+		animation: none;
+		cursor: grabbing;
 	}
-	.tab.groupTarget {
-		outline: 2px solid var(--accent);
-		outline-offset: -2px;
-		background: var(--tab-hover);
+
+	.tab.group-target::after {
+		content: '';
+		position: absolute;
+		inset: -2px;
+		border: 2px solid var(--accent);
+		border-radius: 11px;
+		pointer-events: none;
+	}
+	.tab.group-target {
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+		color: var(--text);
 	}
 
 	.tab:focus-visible {
-		outline: 2px solid var(--accent, #1a73e8);
+		outline: 2px solid var(--accent);
 		outline-offset: -2px;
 	}
 
@@ -242,12 +268,14 @@
 	}
 
 	.label {
-		flex: 1;
+		flex: 1 1 auto;
 		min-width: 0;
 		overflow: hidden;
 		white-space: nowrap;
 		text-overflow: ellipsis;
 		text-align: left;
+		-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
+		mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
 	}
 
 	.close {
@@ -288,6 +316,7 @@
 		.tab,
 		.close {
 			transition: none;
+			animation: none;
 		}
 	}
 </style>

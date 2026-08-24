@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Loading from '../ui/Loading.svelte';
 	import { PRESET_AVATARS } from '$lib/data/presets';
 	import { setup } from '$lib/stores/setup.svelte';
@@ -13,10 +14,7 @@
 		return new Promise((resolve) => {
 			const img = new Image();
 			img.onload = () => resolve();
-			img.onerror = () => {
-				console.warn('Preset avatar missing, skipping:', src);
-				resolve();
-			};
+			img.onerror = () => resolve();
 			img.src = src;
 		});
 	}
@@ -31,8 +29,8 @@
 		ondone();
 	}
 
-	$effect(() => {
-		boot();
+	onMount(() => {
+		void boot();
 	});
 </script>
 

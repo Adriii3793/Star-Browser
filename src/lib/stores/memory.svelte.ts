@@ -4,7 +4,8 @@ const KEY = 'ai_memory';
 export const MAX_ITEMS = 200;
 export const MAX_ITEM_CHARS = 500;
 export const MAX_IMPORT_BYTES = 256 * 1024;
-
+const MAX_PROMPT_ITEMS = 24;
+const MAX_PROMPT_CHARS = 4_000;
 
 const INJECTION_PATTERNS: RegExp[] = [
     /ignore\s+(all\s+)?(previous|prior|above)\s+instruction/i,
@@ -31,53 +32,138 @@ function sanitize(raw: string): string {
     .trim();
 }
 
+function isInstructionLike(text: string): boolean {
+    return INJECTION_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+const IGNORED_TERMS = new Set([
+    'about', 'after', 'again', 'also', 'because', 'could', 'from', 'have', 'into', 'just',
+    'like', 'more', 'only', 'please', 'really', 'should', 'that', 'their', 'there', 'they',
+    'this', 'want', 'what', 'when', 'with', 'would', 'your',
+    'user', 'users', 'thing', 'things', 'stuff', 'remember', 'remembers', 'remembered',
+    'forget', 'forgets', 'forgotten', 'note', 'noted', 'fact', 'facts', 'said', 'says',
+    'know', 'knows', 'told', 'part', 'some', 'item', 'items', 'memory', 'memories'
+]);
+
+function memoryTerms(text: string): string[] {
+    return [...new Set(sanitize(text).toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) ?? [])]
+        .filter((term) => !IGNORED_TERMS.has(term));
+}
+
+const MATCH_THRESHOLD = 0.6;
+
+function distinctiveTerms(query: string, corpus: MemoryItem[]): string[] {
+    const ceiling = Math.max(1, Math.floor(corpus.length * 0.5));
+    return memoryTerms(query).filter((term) => {
+        const seenIn = corpus.reduce((n, item) => n + (item.text.toLowerCase().includes(term) ? 1 : 0), 0);
+        return seenIn >= 1 && seenIn <= ceiling;
+    });
+}
+
+function matchScore(item: MemoryItem, phrase: string, corpus: MemoryItem[]): number {
+    const query = sanitize(phrase).toLowerCase();
+    if (!query) return 0;
+    const itemText = item.text.toLowerCase();
+    if (itemText.includes(query) || query.includes(itemText)) return 1;
+
+    const terms = distinctiveTerms(query, corpus);
+    if (terms.length === 0) return 0;
+    const hits = terms.filter((term) => itemText.includes(term)).length;
+    return hits / terms.length;
+}
+
 function load(): MemoryItem[] {
     try {
         if (typeof localStorage === 'undefined') return [];
         const raw = localStorage.getItem(KEY);
         const p = raw ? JSON.parse(raw) : [];
-        return Array.isArray(p) ? p.filter((x) => typeof x?.text === 'string') : [];
+        if (!Array.isArray(p)) return [];
+        const seen = new Set<string>();
+        return p
+            .filter((x): x is MemoryItem =>
+                typeof x?.id === 'string'
+                && typeof x?.text === 'string'
+                && typeof x?.createdAt === 'number'
+            )
+            .map((item) => ({ ...item, text: sanitize(item.text) }))
+            .filter((item) => {
+                const key = item.text.toLowerCase();
+                if (!item.text || item.text.length > MAX_ITEM_CHARS || isInstructionLike(item.text) || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .slice(0, MAX_ITEMS);
     } catch { return [];}
 }
 
 class MemoryStore {
     items = $state<MemoryItem[]>(load());
     lastError = $state<string | null>(null);
+
     add(text: string): boolean {
-        const t = sanitize(text).slice(0, MAX_ITEM_CHARS);
-        if (!t) return false;
+        const t = sanitize(text);
+        if (!t) {
+            this.lastError = 'Enter something to remember.';
+            return false;
+        }
+        if (t.length > MAX_ITEM_CHARS) {
+            this.lastError = `Memories must be ${MAX_ITEM_CHARS} characters or fewer.`;
+            return false;
+        }
+        if (isInstructionLike(t)) {
+            this.lastError = 'Instruction-like text cannot be saved as memory.';
+            return false;
+        }
         if (this.items.length >= MAX_ITEMS) {
             this.lastError = `Memory is full (${MAX_ITEMS} items). Remove some first.`;
             return false;
         }
-        if (this.items.some((m) => m.text.toLowerCase() === t.toLowerCase())) return false;
-        this.items = [...this.items, {id: crypto.randomUUID(), text: t, createdAt: Date.now()}];
-        return this.#persist();
+        if (this.items.some((m) => m.text.toLowerCase() === t.toLowerCase())) {
+            this.lastError = 'That is already remembered.';
+            return false;
+        }
+        return this.#commit([...this.items, {id: crypto.randomUUID(), text: t, createdAt: Date.now()}]);
     }
 
     remove(id: string) {
-        this.items = this.items.filter((m) => m.id !== id);
-        this.#persist();
+        this.#commit(this.items.filter((m) => m.id !== id));
     }
-    clear() {this.items = []; this.#persist();}
+    clear() { this.#commit([]); }
 
     matches(phrase: string): MemoryItem[] {
-        const q = sanitize(phrase).toLowerCase();
-        if(!q) return [];
-        return this.items.filter((m) => m.text.toLowerCase().includes(q));
+        if (!sanitize(phrase)) return [];
+        const corpus = this.items;
+        return corpus
+            .map((item) => ({ item, score: matchScore(item, phrase, corpus) }))
+            .filter((entry) => entry.score >= MATCH_THRESHOLD)
+            .sort((a, b) => b.score - a.score)
+            .map((entry) => entry.item);
     }
 
     forget(phrase: string): number {
         const doomed = new Set(this.matches(phrase).map((m) => m.id));
         if (doomed.size === 0) return 0;
-        this.items = this.items.filter((m) => !doomed.has(m.id));
-        this.#persist();
+        this.#commit(this.items.filter((m) => !doomed.has(m.id)));
         return doomed.size;
     }
-    toPromptBlock(): string {
+    toPromptBlock(query = ''): string {
         if (this.items.length === 0) return '';
-        const lines = this.items.map((m) => `- ${m.text}`).join('\n');
-        return `Facts the user asked you to remember. Use them when relevant:\n${lines}`;
+        const corpus = this.items;
+        const ranked = [...corpus].sort((a, b) => {
+            const score = matchScore(b, query, corpus) - matchScore(a, query, corpus);
+            return score || b.createdAt - a.createdAt;
+        });
+        const selected: MemoryItem[] = [];
+        let size = 0;
+        for (const item of ranked) {
+            const lineSize = item.text.length + 3;
+            if (selected.length >= MAX_PROMPT_ITEMS || size + lineSize > MAX_PROMPT_CHARS) continue;
+            selected.push(item);
+            size += lineSize;
+        }
+        if (selected.length === 0) return '';
+        const lines = selected.map((m) => `- ${m.text}`).join('\n');
+        return `Facts the user explicitly asked you to remember. Use them only when relevant:\n${lines}`;
     }
     export(): string {
         const now = new Date().toISOString();
@@ -132,22 +218,26 @@ class MemoryStore {
                 report.rejected.push({ text: t.slice(0, 60), reason: 'Too long' });
                 continue;
             }
+            if (isInstructionLike(t)) {
+                report.rejected.push({ text: t.slice(0, 60), reason: 'Instruction-like content is not allowed' });
+                continue;
+            }
 
             if (seen.has(t.toLowerCase())) {report.duplicates++; continue;}
             seen.add(t.toLowerCase());
             staged.push({id: crypto.randomUUID(), text: t,createdAt: Date.now()});
         }
 
-        this.items = mode === 'replace' ? staged : [...this.items, ...staged];
-        this.#persist();
-        report.added = staged.length;
+        const next = mode === 'replace' ? staged : [...this.items, ...staged];
+        if (this.#commit(next)) report.added = staged.length;
         return report;
     }
 
-    #persist(): boolean {
+    #commit(next: MemoryItem[]): boolean {
         try {
             if (typeof localStorage === 'undefined') return false;
-            localStorage.setItem(KEY, JSON.stringify(this.items));
+            localStorage.setItem(KEY, JSON.stringify(next));
+            this.items = next;
             this.lastError = null;
             return true;
         } catch {

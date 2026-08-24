@@ -22,7 +22,7 @@
         border: none;
         border-radius: 0.9em;
         background: var(--accent, #80A4D4);
-        color:#fff;
+        color: var(--accent-contrast, #1c1917);
         font: inherit;
         font-size: 16px;
         font-weight: 600;

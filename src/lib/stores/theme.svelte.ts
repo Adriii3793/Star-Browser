@@ -107,6 +107,8 @@ export function themeVars(t: Theme): Record<string, string> {
         '--border': mix(t.surface, text, 0.14),
         '--border-strong': mix(t.surface, text, 0.24),
         '--hover': dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+        '--success': dark ? '#5bd18d' : '#27875a',
+        '--danger': dark ? '#ff7d70' : '#c0392b',
         '--overlay': dark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(74, 58, 46, 0.28)',
         '--shadow': dark ? 'rgba(0, 0, 0, 0.55)' : 'rgba(74, 58, 46, 0.16)',
         'color-scheme': dark ? 'dark' : 'light'

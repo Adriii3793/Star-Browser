@@ -37,7 +37,7 @@ const OVERLAY_LABEL: &str = "__panel_overlay__";
 
 const OFFLINE_SCRIPT: &str = include_str!("../scripts/offline.js");
 const COSMETIC_SCRIPT: &str = include_str!("../scripts/cosmetic.js");
-const TAB_CORNER_RADIUS: f64 = 10.0;
+const TAB_CORNER_RADIUS: f64 = 12.0;
 
 static COSMETIC_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
@@ -88,6 +88,13 @@ struct DownloadFinished {
     success: bool,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TabPopup {
+    tab_id: String,
+    url: String,
+}
+
 fn file_name_for(path: &str, uri: &str) -> String {
     Path::new(path)
         .file_name()
@@ -116,6 +123,9 @@ fn hide_permission_overlay(app: &AppHandle) -> Result<(), AppError> {
     let webview = state.views.lock().unwrap().get(PERMISSION_LABEL).cloned();
     if let Some(webview) = webview {
         webview.hide()?;
+    }
+    if let Some(main) = app.get_window("main") {
+        let _ = main.set_focus();
     }
     Ok(())
 }
@@ -157,11 +167,22 @@ fn show_permission_overlay(app: &AppHandle, request: PermissionRequested) -> Res
     Ok(())
 }
 
+const CONTEXT_MENU_SCRIPT: &str = r#"(function () {
+  if (window.__starContextMenu) return;
+  window.__starContextMenu = true;
+  document.addEventListener('contextmenu', function (e) {
+    var t = e.target;
+    if (t && t.closest && t.closest('video,audio')) return;
+    e.preventDefault();
+  }, true);
+})();"#;
+
 const SHORTCUT_FORWARD_SCRIPT: &str = r#"(function () {
   var PREFIX = "@@star-shortcut@@:";
   var URL_PREFIX = "@@star-url@@:";
 
   function resolveAction(e) {
+    if (e.key === 'F11' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) return 'fullscreen';
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
     if (e.shiftKey) {
       return (e.key === 'Delete' || e.key === 'Backspace') ? 'cleardata' : null;
@@ -243,6 +264,63 @@ const SHORTCUT_FORWARD_SCRIPT: &str = r#"(function () {
   }
 })();"#;
 
+const EXTRACT_PAGE_SCRIPT: &str = r#"(function () {
+  try {
+    var body = document.body;
+    if (!body) return null;
+    var text = (body.innerText || body.textContent || '').replace(/\s+/g, ' ').trim();
+    var images = [];
+    var imgs = document.querySelectorAll('img[src]');
+    for (var i = 0; i < imgs.length && images.length < 12; i++) {
+      var src = imgs[i].currentSrc || imgs[i].src;
+      if (src && src.indexOf('data:') !== 0) images.push(src);
+    }
+    var videos = [];
+    var vids = document.querySelectorAll('video[src], video source[src]');
+    for (var j = 0; j < vids.length && videos.length < 6; j++) {
+      if (vids[j].src) videos.push(vids[j].src);
+    }
+    var MAX = 16000;
+    return {
+      url: location.href,
+      title: document.title || '',
+      text: text.slice(0, MAX),
+      images: images,
+      videos: videos,
+      truncated: text.length > MAX
+    };
+  } catch (e) {
+    return null;
+  }
+})()"#;
+
+#[tauri::command]
+pub async fn read_tab_page(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<Option<crate::commands::page::PageContext>, AppError> {
+    let label = label_for(&tab_id);
+    let webview = state.views.lock().unwrap().get(&label).cloned();
+    let Some(webview) = webview else {
+        return Ok(None);
+    };
+    Ok(read_live_page(&webview).await)
+}
+
+#[cfg(windows)]
+async fn read_live_page(webview: &tauri::Webview) -> Option<crate::commands::page::PageContext> {
+    let raw = win_permissions::execute_script(webview, EXTRACT_PAGE_SCRIPT).await?;
+    if raw.trim().is_empty() || raw.trim() == "null" {
+        return None;
+    }
+    serde_json::from_str::<crate::commands::page::PageContext>(&raw).ok()
+}
+
+#[cfg(not(windows))]
+async fn read_live_page(_webview: &tauri::Webview) -> Option<crate::commands::page::PageContext> {
+    None
+}
+
 #[tauri::command]
 pub async fn open_tab_webview(
     app: AppHandle,
@@ -253,6 +331,9 @@ pub async fn open_tab_webview(
     y: f64,
     width: f64,
     height: f64,
+    radius: Option<f64>,
+    round_bottom_left: Option<bool>,
+    round_bottom_right: Option<bool>,
 ) -> Result<(), AppError> {
     let label = label_for(&tab_id);
     let parsed = url.parse().map_err(|_| AppError::InvalidUrl)?;
@@ -271,7 +352,9 @@ pub async fn open_tab_webview(
                     webview,
                     (width * scale).round() as i32,
                     (height * scale).round() as i32,
-                    (TAB_CORNER_RADIUS * scale).round() as i32,
+                    (radius.unwrap_or(TAB_CORNER_RADIUS) * scale).round() as i32,
+                    round_bottom_left.unwrap_or(true),
+                    round_bottom_right.unwrap_or(true),
                 );
             }
             return Ok(());
@@ -284,15 +367,22 @@ pub async fn open_tab_webview(
     let title_tab_id = tab_id.clone();
     let shortcut_app = app.clone();
     let shortcut_tab_id = tab_id.clone();
-    let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
-        .zoom_hotkeys_enabled(true)
+    let last_urls = state.last_tab_urls.clone();    let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
+        .zoom_hotkeys_enabled(false)
         .initialization_script_for_all_frames(SHORTCUT_FORWARD_SCRIPT)
+        .initialization_script(CONTEXT_MENU_SCRIPT)
         .initialization_script(OFFLINE_SCRIPT);
     if cosmetic_enabled() {
         builder = builder.initialization_script_for_all_frames(COSMETIC_SCRIPT);
     }
     let builder = builder
         .on_navigation(move |url| {
+            if url.as_str().starts_with("http") {
+                last_urls
+                    .lock()
+                    .unwrap()
+                    .insert(nav_tab_id.clone(), url.to_string());
+            }
             let _ = nav_app.emit(
                 "tab-url-changed",
                 TabUrlChanged {
@@ -356,11 +446,18 @@ pub async fn open_tab_webview(
             &webview,
             (width * scale).round() as i32,
             (height * scale).round() as i32,
-            (TAB_CORNER_RADIUS * scale).round() as i32,
+            (radius.unwrap_or(TAB_CORNER_RADIUS) * scale).round() as i32,
+            round_bottom_left.unwrap_or(true),
+            round_bottom_right.unwrap_or(true),
         );
     }
 
     state.views.lock().unwrap().insert(label, webview);
+    state
+        .last_tab_urls
+        .lock()
+        .unwrap()
+        .insert(tab_id.clone(), url);
     Ok(())
 }
 
@@ -387,6 +484,9 @@ pub async fn set_tab_bounds(
     y: f64,
     width: f64,
     height: f64,
+    radius: Option<f64>,
+    round_bottom_left: Option<bool>,
+    round_bottom_right: Option<bool>,
 ) -> Result<(), AppError> {
     let label = label_for(&tab_id);
     let views = state.views.lock().unwrap();
@@ -401,7 +501,9 @@ pub async fn set_tab_bounds(
                 webview,
                 (width * scale).round() as i32,
                 (height * scale).round() as i32,
-                (TAB_CORNER_RADIUS * scale).round() as i32,
+                (radius.unwrap_or(TAB_CORNER_RADIUS) * scale).round() as i32,
+                round_bottom_left.unwrap_or(true),
+                round_bottom_right.unwrap_or(true),
             );
         }
     }
@@ -439,6 +541,7 @@ pub async fn hide_tab_webview(state: State<'_, AppState>, tab_id: String) -> Res
 #[tauri::command]
 pub async fn close_tab_webview(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
     let label = label_for(&tab_id);
+    state.last_tab_urls.lock().unwrap().remove(&tab_id);
     if let Some(webview) = state.views.lock().unwrap().remove(&label) {
         webview.eval(STOP_MEDIA_SCRIPT).ok();
         #[cfg(windows)]
@@ -490,6 +593,42 @@ pub async fn open_menu_webview(
 }
 
 #[tauri::command]
+pub async fn warm_overlay_webview(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), AppError> {
+    let main = app.get_window("main").ok_or(AppError::WindowNotFound)?;
+
+    {
+        let views = state.views.lock().unwrap();
+        if views.contains_key(OVERLAY_LABEL) {
+            return Ok(());
+        }
+    }
+
+    let builder =
+        WebviewBuilder::new(OVERLAY_LABEL, WebviewUrl::App("overlay".into())).transparent(true);
+
+    let webview = main.add_child(
+        builder,
+        LogicalPosition::new(x, y),
+        LogicalSize::new(width, height),
+    )?;
+    webview.hide()?;
+
+    state
+        .views
+        .lock()
+        .unwrap()
+        .insert(OVERLAY_LABEL.to_string(), webview);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn open_overlay_webview(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -532,17 +671,23 @@ pub async fn open_overlay_webview(
 }
 
 #[tauri::command]
-pub async fn close_overlay_webview(state: State<'_, AppState>) -> Result<(), AppError> {
+pub async fn close_overlay_webview(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
     if let Some(webview) = state.views.lock().unwrap().get(OVERLAY_LABEL) {
         webview.hide()?;
+    }
+    if let Some(main) = app.get_window("main") {
+        let _ = main.set_focus();
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn close_menu_webview(state: State<'_, AppState>) -> Result<(), AppError> {
+pub async fn close_menu_webview(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
     if let Some(webview) = state.views.lock().unwrap().get(MENU_LABEL) {
         webview.hide()?;
+    }
+    if let Some(main) = app.get_window("main") {
+        let _ = main.set_focus();
     }
     Ok(())
 }
@@ -581,7 +726,25 @@ pub async fn tab_forward(state: State<'_, AppState>, tab_id: String) -> Result<(
 #[tauri::command]
 pub async fn tab_reload(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
     let label = label_for(&tab_id);
-    if let Some(webview) = state.views.lock().unwrap().get(&label) {
+    let webview = state.views.lock().unwrap().get(&label).cloned();
+    if let Some(webview) = webview {
+        let is_offline_page = webview
+            .url()
+            .map(|u| u.as_str().starts_with("data:") || u.as_str() == "about:blank")
+            .unwrap_or(false);
+        if is_offline_page {
+            if let Some(url) = state
+                .last_tab_urls
+                .lock()
+                .unwrap()
+                .get(&tab_id)
+                .cloned()
+                .and_then(|u| u.parse().ok())
+            {
+                webview.navigate(url)?;
+                return Ok(());
+            }
+        }
         webview.eval("location.reload()")?;
     }
     Ok(())
@@ -701,7 +864,8 @@ mod win_permissions {
     use webview2_com::Microsoft::Web::WebView2::Win32::{
         ICoreWebView2, ICoreWebView2Deferral, ICoreWebView2NewWindowRequestedEventArgs,
         ICoreWebView2PermissionRequestedEventArgs, ICoreWebView2_2, ICoreWebView2_4,
-        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL, COREWEBVIEW2_DOWNLOAD_STATE,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT, COREWEBVIEW2_DOWNLOAD_STATE,
         COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED, COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS,
         COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CAMERA,
         COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
@@ -713,9 +877,9 @@ mod win_permissions {
     };
     use webview2_com::PermissionRequestedEventHandler;
     use webview2_com::{
-        take_pwstr, DownloadStartingEventHandler, IsDocumentPlayingAudioChangedEventHandler,
-        IsMutedChangedEventHandler, NavigationCompletedEventHandler,
-        NewWindowRequestedEventHandler, StateChangedEventHandler,
+        take_pwstr, DownloadStartingEventHandler, ExecuteScriptCompletedHandler,
+        IsDocumentPlayingAudioChangedEventHandler, IsMutedChangedEventHandler,
+        NavigationCompletedEventHandler, NewWindowRequestedEventHandler, StateChangedEventHandler,
         WebResourceRequestedEventHandler,
     };
     use windows::core::BOOL;
@@ -723,7 +887,7 @@ mod win_permissions {
 
     use super::{
         file_name_for, hide_permission_overlay, show_permission_overlay, DownloadFinished,
-        DownloadStarted, PermissionRequested, TabAudioChanged,
+        DownloadStarted, PermissionRequested, TabAudioChanged, TabPopup,
     };
 
     struct PendingNative {
@@ -752,7 +916,62 @@ mod win_permissions {
         }
     }
 
-    pub fn round_corners(webview: &Webview, width: i32, height: i32, radius: i32) {
+    fn square_off(base: windows::Win32::Graphics::Gdi::HRGN, x1: i32, y1: i32, x2: i32, y2: i32) {
+        let patch = unsafe { windows::Win32::Graphics::Gdi::CreateRectRgn(x1, y1, x2, y2) };
+        if patch.is_invalid() {
+            return;
+        }
+        unsafe {
+            windows::Win32::Graphics::Gdi::CombineRgn(
+                Some(base),
+                Some(base),
+                Some(patch),
+                windows::Win32::Graphics::Gdi::RGN_OR,
+            );
+            let _ = windows::Win32::Graphics::Gdi::DeleteObject(patch.into());
+        }
+    }
+
+    fn corner_region(
+        width: i32,
+        height: i32,
+        radius: i32,
+        bottom_left: bool,
+        bottom_right: bool,
+    ) -> Option<windows::Win32::Graphics::Gdi::HRGN> {
+        if radius <= 0 || (!bottom_left && !bottom_right) {
+            return None;
+        }
+        let w = width + 1;
+        let h = height + 1;
+        let r = radius.min(w / 2).min(h / 2);
+        if r <= 0 {
+            return None;
+        }
+        let base = unsafe {
+            windows::Win32::Graphics::Gdi::CreateRoundRectRgn(0, 0, w, h, r * 2, r * 2)
+        };
+        if base.is_invalid() {
+            return None;
+        }
+        square_off(base, 0, 0, w, r);
+        if !bottom_left {
+            square_off(base, 0, h - r, r, h);
+        }
+        if !bottom_right {
+            square_off(base, w - r, h - r, w, h);
+        }
+        Some(base)
+    }
+
+    pub fn round_corners(
+        webview: &Webview,
+        width: i32,
+        height: i32,
+        radius: i32,
+        bottom_left: bool,
+        bottom_right: bool,
+    ) {
         if width <= 0 || height <= 0 {
             return;
         }
@@ -762,25 +981,69 @@ mod win_permissions {
             if unsafe { controller.ParentWindow(&mut host) }.is_err() || host.is_invalid() {
                 return;
             }
-            let region = unsafe {
-                windows::Win32::Graphics::Gdi::CreateRoundRectRgn(
-                    0,
-                    0,
-                    width + 1,
-                    height + 1,
-                    radius * 2,
-                    radius * 2,
-                )
-            };
-            if region.is_invalid() {
+            let Some(region) = corner_region(width, height, radius, bottom_left, bottom_right)
+            else {
+                unsafe { windows::Win32::Graphics::Gdi::SetWindowRgn(host, None, true) };
                 return;
-            }
+            };
             let applied =
                 unsafe { windows::Win32::Graphics::Gdi::SetWindowRgn(host, Some(region), true) };
             if applied == 0 {
                 let _ = unsafe { windows::Win32::Graphics::Gdi::DeleteObject(region.into()) };
             }
         });
+    }
+
+    pub async fn execute_script(webview: &Webview, script: &'static str) -> Option<String> {
+        let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+        let sender = std::sync::Arc::new(Mutex::new(Some(tx)));
+        let dispatch_sender = sender.clone();
+
+        let dispatched = webview.with_webview(move |platform| {
+            let finish = |slot: &std::sync::Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<String>>>>>,
+                          value: Option<String>| {
+                if let Ok(mut guard) = slot.lock() {
+                    if let Some(tx) = guard.take() {
+                        let _ = tx.send(value);
+                    }
+                }
+            };
+
+            let core = match unsafe { platform.controller().CoreWebView2() } {
+                Ok(core) => core,
+                Err(_) => {
+                    finish(&dispatch_sender, None);
+                    return;
+                }
+            };
+
+            let handler_sender = dispatch_sender.clone();
+            let handler = ExecuteScriptCompletedHandler::create(Box::new(move |result, json| {
+                let value = if result.is_ok() { Some(json) } else { None };
+                if let Ok(mut guard) = handler_sender.lock() {
+                    if let Some(tx) = guard.take() {
+                        let _ = tx.send(value);
+                    }
+                }
+                Ok(())
+            }));
+
+            if unsafe { core.ExecuteScript(&HSTRING::from(script), &handler) }.is_err() {
+                finish(&dispatch_sender, None);
+            }
+        });
+
+        if dispatched.is_err() {
+            if let Ok(mut guard) = sender.lock() {
+                guard.take();
+            }
+            return None;
+        }
+
+        match tokio::time::timeout(std::time::Duration::from_secs(3), rx).await {
+            Ok(Ok(value)) => value,
+            _ => None,
+        }
     }
 
     pub fn grant_app_media(webview: &Webview) {
@@ -1070,6 +1333,82 @@ mod win_permissions {
         "yieldmo.net",
         "amazonaax.com",
         "assoc-amazon.com",
+        "criteo.com",
+        "bidswitch.net",
+        "magnite.com",
+        "spotxchange.com",
+        "rtbhouse.com",
+        "smartadserver.com",
+        "adition.com",
+        "adscale.de",
+        "mediaimpact.de",
+        "gg.gg",
+        "tiktok.com",
+        "tiktokcdn.com",
+        "ads.tiktok.com",
+        "business-api.tiktok.com",
+        "redditinc.com",
+        "ads.reddit.com",
+        "events.redditmedia.com",
+        "snap-adkit.com",
+        "ads.linkedin.com",
+        "adx.linkedin.com",
+        "ads-twitter.com",
+        "static.ads-twitter.com",
+        "ads.pinterest.com",
+        "logs.pinterest.com",
+        "tr.snapchat.com",
+        "app-measurement.com",
+        "firebaseinstallations.googleapis.com",
+        "doubleverify.com",
+        "dvtps.com",
+        "adsafeprotected.com",
+        "moatpixel.com",
+        "iasds01.com",
+        "screencore.io",
+        "openweb.com",
+        "spot.im",
+        "arc.io",
+        "permutive.com",
+        "permutive.app",
+        "1dmp.io",
+        "id5-sync.com",
+        "uidapi.com",
+        "adhigh.net",
+        "yieldmo.com",
+        "sonobi.com",
+        "gamoshi.com",
+        "smilewanted.com",
+        "improvedigital.com",
+        "videoheroes.tv",
+        "connatix.com",
+        "cdn.connatix.com",
+        "jwplayer.com",
+        "aniview.com",
+        "mediavine.com",
+        "raptive.com",
+        "adthrive.com",
+        "monumetric.com",
+        "sheknows.com",
+        "playground.xyz",
+        "freestar.com",
+        "freestar.io",
+        "ad.plus",
+        "galaksion.com",
+        "hilltopads.net",
+        "adcash.com",
+        "clickadu.com",
+        "onclickalgo.com",
+        "onclckpro.com",
+        "onclickperformance.com",
+        "push-mania.com",
+        "propellerclick.com",
+        "propelleradsystem.com",
+        "adsterra.com",
+        "adsterratech.com",
+        "cashtrafic.com",
+        "trafficstars.com",
+        "tsyndicate.com",
     ];
 
     const AD_PATH_MARKERS: &[&str] = &[
@@ -1190,6 +1529,12 @@ mod win_permissions {
             let Some(args) = args else {
                 return Ok(());
             };
+            let mut context = COREWEBVIEW2_WEB_RESOURCE_CONTEXT::default();
+            if unsafe { args.ResourceContext(&mut context) }.is_ok()
+                && context == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT
+            {
+                return Ok(());
+            }
             let request = unsafe { args.Request()? };
             let uri = {
                 let mut uri = PWSTR::null();
@@ -1287,23 +1632,125 @@ mod win_permissions {
         out
     }
 
-    fn offline_page_html(original_url: &str) -> String {
+    fn error_page_html(original_url: &str, heading: &str, message: &str, detail: &str) -> String {
         let encoded = percent_encode(original_url);
         format!(
-            r#"<!doctype html><html><head><meta charset="utf-8"><title>No connection</title></head>
-<body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f7f1ec;color:#4a3a2e;font-family:Inter,-apple-system,'Segoe UI',Roboto,sans-serif">
-<div style="text-align:center;max-width:420px;padding:40px 24px">
-<div style="font-size:64px;margin-bottom:16px">&#128752;</div>
-<h1 style="margin:0 0 10px;font-size:26px;font-weight:600">You are offline</h1>
-<p style="margin:0 0 28px;font-size:15px;line-height:1.6;color:#8a6b57">Star can't reach this page right now. Check your connection and try again.</p>
-<button id="star-retry" style="padding:11px 26px;font:inherit;font-size:15px;font-weight:500;background:#80a4d4;color:#fff;border:none;border-radius:8px;cursor:pointer">Try again</button>
-</div>
+            r#"<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{heading}</title>
+<style>
+:root {{
+  color-scheme: light dark;
+  --page: #ffffff;
+  --ink: #1f2328;
+  --muted: #5c636a;
+  --line: rgba(31, 35, 40, .14);
+  --accent: #4a3a2e;
+}}
+@media (prefers-color-scheme: dark) {{
+  :root {{
+    --page: #1c1917;
+    --ink: #f2efec;
+    --muted: #a5a09b;
+    --line: rgba(255, 255, 255, .16);
+    --accent: #f2efec;
+  }}
+}}
+* {{ box-sizing: border-box; }}
+html, body {{ height: 100%; }}
+body {{
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: var(--page);
+  color: var(--ink);
+  font: 400 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}}
+main {{ width: 100%; max-width: 460px; }}
+h1 {{
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}}
+p {{ margin: 0 0 8px; color: var(--muted); }}
+.detail {{
+  margin: 20px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}}
+button {{
+  margin-top: 24px;
+  padding: 9px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}}
+button:hover {{ background: color-mix(in srgb, currentColor 8%, transparent); border-color: currentColor; }}
+</style></head>
+<body>
+<main>
+<h1>{heading}</h1>
+<p>{message}</p>
+<button id="star-retry" type="button">Reload</button>
+<p class="detail">{detail}</p>
+</main>
 <script>
 var target = decodeURIComponent("{encoded}");
 function retry() {{ if (target) location.replace(target); else location.reload(); }}
 document.getElementById('star-retry').addEventListener('click', retry);
 window.addEventListener('online', retry);
 </script></body></html>"#
+        )
+    }
+
+    fn escape_html(value: &str) -> String {
+        value
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    }
+
+    fn offline_page_html(original_url: &str) -> String {
+        error_page_html(
+            original_url,
+            "No internet connection",
+            "Star cannot reach the network right now. Check your connection, then reload the page.",
+            &escape_html(original_url),
+        )
+    }
+
+    fn site_error_page_html(original_url: &str) -> String {
+        let host = url::Url::parse(original_url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_string()))
+            .unwrap_or_default();
+        let subject = if host.is_empty() {
+            "This site".to_string()
+        } else {
+            escape_html(&host)
+        };
+        error_page_html(
+            original_url,
+            "This site can&#39;t be reached",
+            &format!(
+                "{subject} took too long to respond, or the address does not exist. Check the address, then reload the page."
+            ),
+            &escape_html(original_url),
         )
     }
 
@@ -1319,12 +1766,12 @@ window.addEventListener('online', retry);
             }
             let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
             unsafe { args.WebErrorStatus(&mut status)? };
-            let connectivity = status == COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED
-                || status == COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT
-                || status == COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED
+            let offline = status == COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED
+                || status == COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT;
+            let site_unreachable = status == COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED
                 || status == COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT
                 || status == COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE;
-            if !connectivity {
+            if !offline && !site_unreachable {
                 return Ok(());
             }
 
@@ -1335,7 +1782,11 @@ window.addEventListener('online', retry);
                     Err(_) => String::new(),
                 }
             };
-            let html = HSTRING::from(offline_page_html(&original));
+            let html = HSTRING::from(if offline {
+                offline_page_html(&original)
+            } else {
+                site_error_page_html(&original)
+            });
             let _ = unsafe { sender.NavigateToString(&html) };
             Ok(())
         }));
@@ -1354,6 +1805,23 @@ window.addEventListener('online', retry);
         tab_id: String,
         args: ICoreWebView2NewWindowRequestedEventArgs,
     ) {
+        let target_uri = {
+            let mut uri = PWSTR::null();
+            match unsafe { args.Uri(&mut uri) } {
+                Ok(()) => take_pwstr(uri),
+                Err(_) => String::new(),
+            }
+        };
+        if !target_uri.is_empty() {
+            let _ = app.emit(
+                "tab-popup",
+                TabPopup {
+                    tab_id: tab_id.clone(),
+                    url: target_uri,
+                },
+            );
+        }
+
         let Ok(deferral) = (unsafe { args.GetDeferral() }) else {
             return;
         };

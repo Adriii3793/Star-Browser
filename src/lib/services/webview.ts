@@ -5,17 +5,27 @@ function bounds(rect: DOMRect) {
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height};
 }
 
-export function openTabWebview(tabId: string, url: string, rect: DOMRect): Promise<void> {
-    return call('open_tab_webview', {tabId, url, ...bounds(rect)});
+export interface TabCorners {
+    radius?: number;
+    roundBottomLeft?: boolean;
+    roundBottomRight?: boolean;
+}
 
+export function openTabWebview(
+    tabId: string,
+    url: string,
+    rect: DOMRect,
+    corners?: TabCorners
+): Promise<void> {
+    return call('open_tab_webview', {tabId, url, ...bounds(rect), ...corners});
 }
 
 export function navigateTabWebview(tabId: string, url: string): Promise<void> {
     return call('navigate_tab_webview', {tabId, url});
 }
 
-export function setTabBounds(tabId: string, rect: DOMRect): Promise<void> {
-    return call('set_tab_bounds', {tabId, ...bounds(rect)});
+export function setTabBounds(tabId: string, rect: DOMRect, corners?: TabCorners): Promise<void> {
+    return call('set_tab_bounds', {tabId, ...bounds(rect), ...corners});
 }
 
 export function showTabWebview(tabId: string): Promise<void> {
@@ -96,6 +106,10 @@ export function closeMenuWebview(): Promise<void> {
 
 export function openOverlayWebview(rect: DOMRect): Promise<void> {
     return call('open_overlay_webview', {...bounds(rect)});
+}
+
+export function warmOverlayWebview(rect: DOMRect): Promise<void> {
+    return call('warm_overlay_webview', {...bounds(rect)});
 }
 
 export function closeOverlayWebview(): Promise<void> {

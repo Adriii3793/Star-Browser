@@ -6,6 +6,7 @@
     let zoom = $state(100);
     let anchor = $state({ x: 6, y: 44 });
     let openToken = $state(0);
+    let fullscreen = $state(false);
 
     function send(action: string) {
         emit('menu-action', { action });
@@ -29,14 +30,18 @@
                 root.style.setProperty(key, value);
             }
         });
+        const unlistenState = listen<{ fullscreen?: boolean }>('menu-state', (e) => {
+            fullscreen = Boolean(e.payload?.fullscreen);
+        });
 
-        Promise.all([unlistenZoom, unlistenPosition, unlistenTheme]).then(() =>
+        Promise.all([unlistenZoom, unlistenPosition, unlistenTheme, unlistenState]).then(() =>
             emit('menu-ready', {})
         );
         return () => {
             unlistenZoom.then((off) => off());
             unlistenPosition.then((off) => off());
             unlistenTheme.then((off) => off());
+            unlistenState.then((off) => off());
         };
     });
 </script>
@@ -49,11 +54,11 @@
             onnewtab={() => send('newtab')}
             onhistory={() => send('history')}
             ondownloads={() => send('downloads')}
-            oncleardata={() => send('cleardata')}
             onprint={() => send('print')}
             onfullscreen={() => send('fullscreen')}
             onsettings={() => send('settings')}
             {zoom}
+            {fullscreen}
             onzoomin={() => send('zoomin')}
             onzoomout={() => send('zoomout')}
             onzoomreset={() => send('zoomreset')}
@@ -76,6 +81,9 @@
         --tab-hover: #fbf6f2;
         --accent: #80a4d4;
         --border: rgba(74, 58, 46, 0.08);
+        --border-strong: rgba(74, 58, 46, 0.24);
+        --hover: rgba(0, 0, 0, 0.06);
+        --accent-contrast: #1c1917;
         --shadow: rgba(74, 58, 46, 0.16);
     }
 
@@ -86,6 +94,18 @@
         background: transparent !important;
         font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto,
             sans-serif;
+    }
+
+    :global(body) {
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+    }
+
+    :global(input),
+    :global(textarea) {
+        -webkit-user-select: text;
+        user-select: text;
     }
 
     .overlay {

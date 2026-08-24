@@ -1,29 +1,40 @@
 <script lang="ts">
     import { setup } from '$lib/stores/setup.svelte';
 
-    let { url = '', onnavigate, onchat, onback, onforward, onreload,
-        canBack = false, canForward = false, mediaActive = false, onmedia
+    let { url = '', onnavigate, onchat, chatOpen = false, onback, onforward, onreload,
+        canBack = false, canForward = false, mediaActive = false, mediaOpen = false, onmedia,
+        favoriteActive = false, onfavorite
     }:
         {
             url?: string;
             onnavigate: (u: string) => void;
             onchat: () => void;
+            chatOpen?: boolean;
             onback: () => void;
             onforward: () => void;
             onreload: () => void;
             canBack?: boolean;
             canForward?: boolean;
             mediaActive?: boolean;
+            mediaOpen?: boolean;
             onmedia?: () => void;
+            favoriteActive?: boolean;
+            onfavorite?: () => void;
         } = $props();
     let value = $state('');
     let focused = $state(false);
+    let dirty = $state(false);
     let lastSyncedUrl = $state('');
+    let copied = $state(false);
+    let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
     $effect(() => {
-        if (!focused && url !== lastSyncedUrl) {
-            value = url;
+        if (url !== lastSyncedUrl) {
             lastSyncedUrl = url;
+            if (!focused || !dirty) {
+                value = url;
+                dirty = false;
+            }
         }
     });
 
@@ -41,6 +52,9 @@
             document.execCommand('copy');
             textarea.remove();
         }
+        copied = true;
+        clearTimeout(copiedTimer);
+        copiedTimer = setTimeout(() => (copied = false), 2000);
     }
 </script>
 
@@ -64,26 +78,45 @@
         <input
             bind:value
             onfocus={() => (focused = true)}
-            onblur={() => (focused = false)}
-            onkeydown={(e) => e.key === 'Enter' && onnavigate(value)}
+            onblur={() => { focused = false; dirty = false; }}
+            oninput={() => (dirty = true)}
+            onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                    onnavigate(value);
+                    e.currentTarget.blur();
+                }
+            }}
             placeholder="Search with {setup.engine.name}"
         />
-        <button class="copy" type="button" aria-label="Copy link" title="Copy link" onclick={copyLink} disabled={!url}>
-            <span aria-hidden="true">🔗</span>
+        <button class="favorite-toggle" class:active={favoriteActive} type="button" aria-label={favoriteActive ? 'Remove from favorites' : 'Add to favorites'} title={favoriteActive ? 'Remove from favorites' : 'Add to favorites'} onclick={onfavorite}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill={favoriteActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 17.3l-5.6 3.2 1.1-6.3L2 9.1l6.3-.9L12 2.5l3.7 5.7 6.3.9-5.5 4.1 1.1 6.3z" />
+            </svg>
+        </button>
+        <button class="copy" class:copied type="button" aria-label={copied ? 'Link copied' : 'Copy link'} title={copied ? 'Copied!' : 'Copy link'} onclick={copyLink} disabled={!url}>
+            {#if copied}
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7" /></svg>
+            {:else}
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+                    <path d="M15 7h2a5 5 0 1 1 0 10h-2" />
+                    <path d="M8 12h8" />
+                </svg>
+            {/if}
         </button>
     </div>
 
     <div class="actions">
         {#if mediaActive}
-        <button class="media" type="button" aria-label="Media playing in tabs" title="Media controls" onclick={onmedia}>
+        <button class="media" class:active={mediaOpen} type="button" aria-label="Media playing in tabs" aria-pressed={mediaOpen} title={mediaOpen ? 'Hide media controls' : 'Media controls'} onclick={onmedia}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 18V5l12-2v13" />
-                <circle cx="6" cy="18" r="3" />
-                <circle cx="18" cy="16" r="3" />
+                <path d="M11 5L6 9H2v6h4l5 4V5z" />
+                <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                <path d="M18.5 5.5a9.5 9.5 0 0 1 0 13" />
             </svg>
         </button>
         {/if}
-        <button class="chat" type="button" aria-label="Open AI Chat" onclick={onchat}>
+        <button class="chat" class:active={chatOpen} type="button" aria-label={chatOpen ? 'Close AI Chat' : 'Open AI Chat'} aria-pressed={chatOpen} onclick={onchat}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z" />
             </svg>
@@ -115,10 +148,13 @@
         .field {
             flex:1 1 auto; min-width: 120px; display:flex; align-items: center; gap:8px;
             height: 32px;
-            background: var(--bg-chrome); border: 1px solid transparent; border-radius: 999px; padding:0 6px 0 14px;
-            transition: border-color 150ms ease, box-shadow 150ms ease;
+            background: var(--field); border: 1px solid var(--border); border-radius: 999px; padding:0 6px 0 14px;
+            transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
         }
+        .field:hover { background: var(--field-strong); }
         .field:focus-within {
+            border-color: var(--accent);
+            background: var(--bg-page);
             box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%,transparent);
         }
         .field input {
@@ -126,10 +162,6 @@
             font-size: 13px; color: var(--text); font-family:inherit;
         }
         .field input::placeholder {color:var(--text-muted);}
-        .field:focus-within {
-            border-color: var(--border-strong);
-            background: var(--bg-chrome);
-        }
         .copy {
             display: inline-flex;
             align-items: center;
@@ -140,14 +172,33 @@
             padding: 0;
             border: 0;
             border-radius: 50%;
-            background: var(--bg-page);
+            background: transparent;
             color: var(--text-soft);
-            font-size: 12px;
             cursor: pointer;
-            transition: background-color .14s ease, color .14s ease, transform .14s ease;
+            transition: background-color .14s ease, color .14s ease;
         }
-        .copy:hover:not(:disabled) { background: var(--tab-hover); color: var(--text); transform: translateY(-1px); }
+        .copy:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+        .copy.copied { color: var(--success); }
+        .copy svg { display: block; }
         .copy:disabled { opacity: .45; cursor: default; }
+        .favorite-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: var(--text-soft);
+            cursor: pointer;
+            transition: color .14s ease, transform .14s ease;
+        }
+        .favorite-toggle:hover { color: var(--text); }
+        .favorite-toggle.active { color: var(--accent); }
+        .favorite-toggle.active:hover { color: var(--accent-hover, var(--accent)); }
+        .favorite-toggle:active { transform: scale(.9); }
+        .favorite-toggle svg { display:block; }
         .media {
             display: inline-flex; align-items: center; justify-content: center;
             width: 32px; height: 32px; padding: 0;
@@ -157,6 +208,10 @@
             transition: background-color .14s ease, border-color .14s ease;
         }
         .media:hover { background: var(--tab-hover); border-color: var(--border-strong); }
+        .media.active {
+            background: color-mix(in srgb, var(--accent) 16%, var(--bg-page));
+            border-color: var(--accent);
+        }
 
         .chat {
             display: flex; align-items: center; gap: 7px;
@@ -167,6 +222,11 @@
             transition: background-color .14s ease, border-color .14s ease;
         }
         .chat:hover { background: var(--tab-hover); border-color: var(--border-strong); }
+        .chat.active {
+            background: color-mix(in srgb, var(--accent) 16%, var(--bg-page));
+            border-color: var(--accent);
+            color: var(--accent);
+        }
 
         .actions {
             position: relative;
@@ -177,7 +237,7 @@
         }
 
         @media (prefers-reduced-motion: reduce) {
-            .copy, .chat { transition: none; }
+            .copy, .chat, .favorite-toggle { transition: none; }
         }
         
     </style>

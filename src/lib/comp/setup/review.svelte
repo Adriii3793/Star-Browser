@@ -129,8 +129,8 @@
         border-radius: 16px;
         overflow: hidden;
         background: var(--bg-page, #fff);
-        border: 1px solid rgba(74, 58, 46, 0.08);
-        box-shadow: 0 8px 24px rgba(74, 58, 46, 0.08);
+        border: 1px solid var(--border);
+        box-shadow: 0 8px 24px var(--shadow);
     }
 
     .preview-head {
@@ -178,7 +178,8 @@
         max-width: 260px;
         padding: 8px 16px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.9);
+        background: var(--bg-page);
+        border: 1px solid var(--border);
         backdrop-filter: blur(8px);
     }
 
@@ -207,7 +208,7 @@
 
     .row-card:hover {
         background: var(--bg-page, #fff);
-        border-color: rgba(74, 58, 46, 0.12);
+        border-color: var(--border-strong);
     }
 
     .badge,
@@ -218,7 +219,7 @@
         flex: 0 0 auto;
         width: 40px;
         height: 40px;
-        color: #fff;
+        color: #ffffff;
         font-weight: 700;
         overflow: hidden;
     }
@@ -238,6 +239,7 @@
     .avatar {
         border-radius: 50%;
         background: var(--accent, #80A4D4);
+        color: var(--accent-contrast, #1c1917);
         font-size: 16px;
     }
 
@@ -291,7 +293,7 @@
     }
 
     .change:hover {
-        background: rgba(128, 164, 212, 0.1);
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
     }
 
     .change:focus-visible {

@@ -1,5 +1,7 @@
 <script lang="ts">
     import { history } from '$lib/stores/history.svelte';
+    import { emit } from '@tauri-apps/api/event';
+    import type { HistoryEntry } from '$lib/types';
 
     let { onclose, onopen }: { onclose: () => void; onopen: (url: string) => void } = $props();
 
@@ -15,6 +17,12 @@
         history.search(query);
     }
 
+    function clearEverything() {
+        void emit('overlay-clear-data', {});
+        query = '';
+        history.clear();
+    }
+
     function domainOf(url: string): string {
         try {
             return new URL(url).hostname.replace(/^www\./, '');
@@ -23,12 +31,54 @@
         }
     }
 
-    function initialOf(text: string): string {
-        return (text.trim()[0] ?? '?').toUpperCase();
+    function faviconFor(rawUrl: string): string {
+        try {
+            const u = new URL(rawUrl);
+            return `${u.origin}/favicon.ico`;
+        } catch {
+            return '';
+        }
     }
 
+    function faviconFallback(e: Event, rawUrl: string) {
+        const img = e.currentTarget as HTMLImageElement;
+        if (img.dataset.fallback === 'ddg') {
+            img.style.display = 'none';
+            return;
+        }
+        img.dataset.fallback = 'ddg';
+        try {
+            const host = new URL(rawUrl).hostname;
+            img.src = `https://icons.duckduckgo.com/ip3/${host}.ico`;
+        } catch {
+            img.style.display = 'none';
+        }
+    }
+
+    function dayLabel(ms: number): string {
+        const d = new Date(ms);
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+        const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+        if (sameDay(d, today)) return 'Today';
+        if (sameDay(d, yesterday)) return 'Yesterday';
+        return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    }
+
+    let groups = $derived.by(() => {
+        const out: { label: string; items: HistoryEntry[] }[] = [];
+        for (const entry of history.entries) {
+            const label = dayLabel(entry.visitedAt);
+            const last = out[out.length - 1];
+            if (last && last.label === label) last.items.push(entry);
+            else out.push({ label, items: [entry] });
+        }
+        return out;
+    });
+
     function formatTime(ms: number): string {
-        return new Date(ms).toLocaleString();
+        return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     function open(url: string) {
@@ -59,7 +109,7 @@
             <h2>History</h2>
             <button type="button" class="close" aria-label="Close history" onclick={onclose}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 6l-12 12" />
+                    <path d="M18 6L6 18" />
                     <path d="M6 6l12 12" />
                 </svg>
             </button>
@@ -77,7 +127,7 @@
             <button
                 type="button"
                 class="clear"
-                onclick={() => history.clear()}
+                onclick={clearEverything}
                 disabled={history.entries.length === 0}
             >
                 Clear all
@@ -88,15 +138,20 @@
             {#if history.entries.length === 0}
                 <p class="empty">No history yet</p>
             {:else}
-                {#each history.entries as entry (entry.id)}
-                    <button class="row" type="button" onclick={() => open(entry.url)}>
-                        <span class="icon">{initialOf(entry.query ?? entry.title ?? entry.url)}</span>
-                        <span class="text">
-                            <span class="title">{entry.query ?? entry.title}</span>
-                            <span class="url">{domainOf(entry.url)}</span>
-                        </span>
-                        <span class="time">{formatTime(entry.visitedAt)}</span>
-                    </button>
+                {#each groups as group (group.label)}
+                    <h3 class="day">{group.label}</h3>
+                    {#each group.items as entry (entry.id)}
+                        <button class="row" type="button" onclick={() => open(entry.url)}>
+                            <span class="icon">
+                                <img src={faviconFor(entry.url)} alt="" onerror={(e) => faviconFallback(e, entry.url)} />
+                            </span>
+                            <span class="text">
+                                <span class="title">{entry.query ?? entry.title}</span>
+                                <span class="url">{domainOf(entry.url)}</span>
+                            </span>
+                            <span class="time">{formatTime(entry.visitedAt)}</span>
+                        </button>
+                    {/each}
                 {/each}
             {/if}
         </div>
@@ -112,18 +167,18 @@
         align-items: center;
         justify-content: center;
         padding: 24px;
-        background: var(--overlay);
+        background: transparent;
     }
 
     .panel {
         display: flex;
         flex-direction: column;
-        width: min(620px, 100%);
-        max-height: min(700px, 100%);
-        padding: 22px 24px 20px;
+        width: min(680px, 100%);
+        max-height: min(720px, 100%);
+        padding: 20px 8px 12px 24px;
         background: var(--bg-page);
         border-radius: 14px;
-        box-shadow: 0 18px 48px var(--overlay);
+        box-shadow: 0 18px 48px var(--shadow), 0 0 0 1px var(--border);
     }
 
     header {
@@ -225,8 +280,8 @@
     .row {
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 8px 10px;
+        gap: 14px;
+        padding: 9px 10px;
         border: none;
         border-radius: 10px;
         background: transparent;
@@ -239,18 +294,32 @@
         background: var(--tab-hover);
     }
 
+    .row:hover .title {
+        color: var(--accent);
+    }
+
+    .day {
+        margin: 16px 10px 6px;
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: var(--text-soft);
+    }
+    .list > .day:first-child { margin-top: 2px; }
+
     .icon {
         display: flex;
         align-items: center;
         justify-content: center;
         flex: 0 0 auto;
-        width: 32px;
-        height: 32px;
-        border-radius: 9px;
-        background: var(--field);
-        color: var(--accent);
-        font-size: 13px;
-        font-weight: 600;
+        width: 20px;
+        height: 20px;
+    }
+    .icon img {
+        width: 18px;
+        height: 18px;
+        border-radius: 3px;
+        object-fit: contain;
     }
 
     .text {

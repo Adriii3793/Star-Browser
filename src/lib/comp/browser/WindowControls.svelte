@@ -9,12 +9,13 @@
 	interface Props {
 		platform?: Platform;
 		background?: string;
+		maximizable?: boolean;
 		onminimize?: () => void;
 		onmaximize?: (maximized: boolean) => void;
 		onclose?: () => void;
 	}
 
-	let { platform, background, onminimize, onmaximize, onclose }: Props = $props();
+	let { platform, background, maximizable = true, onminimize, onmaximize, onclose }: Props = $props();
 
 	let os = $state<Platform>('windows');
 	let maximized = $derived(windowChrome.maximized);
@@ -188,35 +189,36 @@
 			});
 		}
 
-		windowChrome.init(os);
+		windowChrome.init();
 	});
 
 	onDestroy(() => {
 		observer?.disconnect();
-		windowChrome.destroy();
 	});
 </script>
 
 {#if os === 'macos'}
-	<div bind:this={root} class="controls macos" role="group" aria-label="Controlli finestra">
-		<button type="button" class="traffic close" aria-label="Chiudi" onclick={close}>
+	<div bind:this={root} class="controls macos" role="group" aria-label="Window controls">
+		<button type="button" class="traffic close" aria-label="Close" onclick={close}>
 			<svg viewBox="0 0 12 12" aria-hidden="true">
 				<path d="M3.35 3.35 L8.65 8.65 M8.65 3.35 L3.35 8.65" />
 			</svg>
 		</button>
 
-		<button type="button" class="traffic minimize" aria-label="Riduci a icona" onclick={minimize}>
+		<button type="button" class="traffic minimize" aria-label="Minimize" onclick={minimize}>
 			<svg viewBox="0 0 12 12" aria-hidden="true">
 				<path d="M3 6 H9" />
 			</svg>
 		</button>
 
-		<button type="button" class="traffic maximize" aria-label="Ingrandisci" onclick={toggleMaximize}>
-			<svg viewBox="0 0 12 12" aria-hidden="true" class="filled">
-				<path d="M3.1 3.1 H6.9 L3.1 6.9 Z" />
-				<path d="M8.9 8.9 H5.1 L8.9 5.1 Z" />
-			</svg>
-		</button>
+		{#if maximizable}
+			<button type="button" class="traffic maximize" aria-label="Zoom" onclick={() => void toggleMaximize()}>
+				<svg viewBox="0 0 12 12" aria-hidden="true" class="filled">
+					<path d="M3.1 3.1 H6.9 L3.1 6.9 Z" />
+					<path d="M8.9 8.9 H5.1 L8.9 5.1 Z" />
+				</svg>
+			</button>
+		{/if}
 	</div>
 {:else}
 	<div
@@ -225,33 +227,35 @@
 		class:on-light={tone === 'light'}
 		class:on-dark={tone === 'dark'}
 		role="group"
-		aria-label="Controlli finestra"
+		aria-label="Window controls"
 	>
-		<button type="button" class="cell" aria-label="Riduci a icona" onclick={minimize}>
+		<button type="button" class="cell" aria-label="Minimize" onclick={minimize}>
 			<svg viewBox="0 0 10 10" aria-hidden="true">
 				<path d="M0 5 H10" />
 			</svg>
 		</button>
 
-		<button
-			type="button"
-			class="cell"
-			aria-label={maximized ? 'Ripristina' : 'Ingrandisci'}
-			onclick={toggleMaximize}
-		>
-			{#if maximized}
-				<svg viewBox="0 0 10 10" aria-hidden="true">
-					<rect x="0.5" y="2.5" width="7" height="7" />
-					<path d="M2.5 2.5 V0.5 H9.5 V7.5 H7.5" />
-				</svg>
-			{:else}
-				<svg viewBox="0 0 10 10" aria-hidden="true">
-					<rect x="0.5" y="0.5" width="9" height="9" />
-				</svg>
-			{/if}
-		</button>
+		{#if maximizable}
+			<button
+				type="button"
+				class="cell"
+				aria-label={maximized ? 'Restore' : 'Maximize'}
+				onclick={() => void toggleMaximize()}
+			>
+				{#if maximized}
+					<svg viewBox="0 0 10 10" aria-hidden="true">
+						<rect x="0.5" y="2.5" width="7" height="7" />
+						<path d="M2.5 2.5 V0.5 H9.5 V7.5 H7.5" />
+					</svg>
+				{:else}
+					<svg viewBox="0 0 10 10" aria-hidden="true">
+						<rect x="0.5" y="0.5" width="9" height="9" />
+					</svg>
+				{/if}
+			</button>
+		{/if}
 
-		<button type="button" class="cell close" aria-label="Chiudi" onclick={close}>
+		<button type="button" class="cell close" aria-label="Close" onclick={close}>
 			<svg viewBox="0 0 10 10" aria-hidden="true">
 				<path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" />
 			</svg>
@@ -340,13 +344,13 @@
 	.win.on-light {
 		--auto-fg: #1a1a1a;
 		--hover: rgba(0, 0, 0, 0.07);
-		--active: rgba(0, 0, 0, 0.12);
+		--active: rgba(0, 0, 0, 0.14);
 	}
 
 	.win.on-dark {
 		--auto-fg: #ffffff;
 		--hover: rgba(255, 255, 255, 0.09);
-		--active: rgba(255, 255, 255, 0.05);
+		--active: rgba(255, 255, 255, 0.18);
 	}
 
 	.cell {

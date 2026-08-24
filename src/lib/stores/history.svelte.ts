@@ -11,7 +11,10 @@ class HistoryStore {
     entries = $state<HistoryEntry[]>([]);
     loading = $state(false);
 
-    async load(limit = 20) {
+    #limit = 20;
+
+    async load(limit = this.#limit) {
+        this.#limit = limit;
         this.loading = true;
         try {
             this.entries = await recentHistory(limit);
@@ -26,7 +29,9 @@ class HistoryStore {
     }
 
     async search(term: string) {
-        this.entries = term.trim() ? await searchHistory(term) : await recentHistory();
+        this.entries = term.trim()
+            ? await searchHistory(term, this.#limit)
+            : await recentHistory(this.#limit);
     }
 
     async clear() {

@@ -28,7 +28,26 @@ class FavoritesStore {
     }
 
     add(title: string, url: string) {
-        this.items = [...this.items, { id: crypto.randomUUID(), title, url }];
+        const normalized = url.trim();
+        if (!normalized) return;
+        this.items = [...this.items, { id: crypto.randomUUID(), title: title.trim() || 'Favorite', url: normalized }];
+        this.#persist();
+    }
+
+    hasUrl(url: string): boolean {
+        const normalized = url.trim();
+        return normalized.length > 0 && this.items.some((item) => item.url.trim() === normalized);
+    }
+
+    upsertFromUrl(title: string, url: string) {
+        const normalized = url.trim();
+        if (!normalized) return;
+        const existing = this.items.find((item) => item.url.trim() === normalized);
+        if (existing) {
+            this.items = this.items.map((item) => item.id === existing.id ? { ...item, title: title.trim() || item.title } : item);
+        } else {
+            this.items = [...this.items, { id: crypto.randomUUID(), title: title.trim() || 'Favorite', url: normalized }];
+        }
         this.#persist();
     }
 

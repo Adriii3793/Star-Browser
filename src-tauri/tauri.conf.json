@@ -14,8 +14,8 @@
     "windows": [
       {
         "title": "star",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 800,
         "resizable": true,
         "alwaysOnTop": false,
         "minWidth": 800,
@@ -23,21 +23,25 @@
         "decorations": false,
         "transparent": true,
         "shadow": true,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "visible": false
       }
     ],
     "security": {
-      "capabilities": ["main", "overlay-webviews", "tab-content"],
-      "csp": null
+      "capabilities": [
+        "main",
+        "overlay-webviews"
+      ],
+      "csp": "default-src 'self'; img-src 'self' asset: data: blob: https:; media-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "publisher": "Star Development Team",
-    "copyright": "© 2026 Star Development Team",
+    "copyright": "\u00a9 2026 Star Development Team",
     "category": "Productivity",
-    "shortDescription": "Star — a minimalist AI browser",
+    "shortDescription": "Star \u2014 a minimalist AI browser",
     "homepage": "https://github.com/Adriii3793/Project-2k26",
     "icon": [
       "icons/32x32.png",
@@ -51,11 +55,15 @@
       "digestAlgorithm": "sha256",
       "timestampUrl": "http://timestamp.digicert.com",
       "wix": {
-        "language": ["it-IT"]
+        "language": [
+          "it-IT"
+        ]
       },
       "nsis": {
-        "installerHooks": "./installer-hooks.nsh",
-        "languages": ["Italian", "English"],
+        "languages": [
+          "Italian",
+          "English"
+        ],
         "displayLanguageSelector": true
       }
     }

@@ -29,6 +29,7 @@
         openMenuWebview,
         closeMenuWebview,
         openOverlayWebview,
+        warmOverlayWebview,
         closeOverlayWebview,
         tabBack,
         tabForward,
@@ -41,9 +42,8 @@
         setAdblockEnabled
     } from '$lib/services/webview';
     import { getCurrentWindow } from '@tauri-apps/api/window';
-    import { LogicalSize } from '@tauri-apps/api/dpi';
     import { listen, emit } from '@tauri-apps/api/event';
-    import { onMount } from 'svelte';
+    import { onMount, untrack } from 'svelte';
     import { platform as detectPlatform } from '@tauri-apps/plugin-os';
     import { windowChrome } from '$lib/stores/windowChrome.svelte';
     import { setup } from '$lib/stores/setup.svelte';
@@ -65,9 +65,25 @@
         }
 
         void restoreTabSession();
+        void warmOverlayWebview(new DOMRect(0, 0, window.innerWidth, window.innerHeight)).catch(() => {});
+        void windowChrome.init();
+
+        const captureFs = (e: KeyboardEvent) => {
+            if (e.key === 'F11' || e.code === 'F11' || (e as KeyboardEvent & { keyCode?: number }).keyCode === 122) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                void toggleFullscreen();
+            }
+            if (e.key === 'Escape' && windowChrome.fullscreen) {
+                e.preventDefault();
+                void windowChrome.setFullscreen(false);
+            }
+        };
+        window.addEventListener('keydown', captureFs, true);
 
         const unlistenClose = getCurrentWindow().onCloseRequested(async () => {
             clearTimeout(saveTimer);
+            window.removeEventListener('keydown', captureFs, true);
             await Promise.race([
                 saveTabSession(buildTabSession()).catch(() => {}),
                 new Promise((resolve) => setTimeout(resolve, 800))
@@ -76,6 +92,8 @@
 
         return () => {
             unlistenClose.then((off) => off());
+            window.removeEventListener('keydown', captureFs, true);
+            windowChrome.destroy();
         };
     });
 
@@ -103,6 +121,7 @@
     let showDownloads = $state(false);
     let menuOpen = $state(false);
     let favBarExpanded = $state(false);
+    let profileOpen = $state(false);
     type DownloadToast = {
         id: string;
         fileName: string;
@@ -173,8 +192,47 @@
         favDialog = null;
     }
 
+    function openFavorite(url: string) {
+        const current = activeTab;
+        if (current && !current.hasNavigated) {
+            navigate(url);
+            return;
+        }
+        const nextTabs = [...tabs];
+        const id = crypto.randomUUID();
+        nextTabs.push({ id, title: 'New tab', url: '', searchText: '', hasNavigated: false, hist: [], cursor: -1, zoom: 1 });
+        tabs = nextTabs;
+        activeId = id;
+        navigate(url);
+    }
+
+    function toggleCurrentFavorite() {
+        const tab = activeTab;
+        if (!tab || !tab.url) return;
+        const existing = favorites.items.find((item) => item.url.trim() === tab.url.trim());
+        if (existing) {
+            favorites.remove(existing.id);
+            return;
+        }
+        favorites.upsertFromUrl(tab.title || domainOf(tab.url), tab.url);
+    }
+
+    $effect(() => {
+        if (!profileOpen) return;
+        const key = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                profileOpen = false;
+                restoreActiveTabVisibility();
+            }
+        };
+        window.addEventListener('keydown', key);
+        return () => {
+            window.removeEventListener('keydown', key);
+        };
+    });
+
     function grabFavorite(index: number, e: PointerEvent) {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || !favEditing) return;
         favPendingIndex = index;
         favStartX = e.clientX;
         favStartY = e.clientY;
@@ -229,10 +287,28 @@
             ? `${greetingFor(now)}, ${setup.data.name.trim()}`
             : greetingFor(now)
     );
+    let clock = $derived(
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    );
 
-    setup.load();
+    let isFullscreen = $derived(windowChrome.fullscreen);
+    let squared = $derived(windowChrome.squared);
+    const WINDOW_RADIUS = 12;
+    let winRadius = $derived(squared ? 0 : WINDOW_RADIUS);
+    let tabCorners = $derived({
+        radius: winRadius,
+        roundBottomLeft: !squared,
+        roundBottomRight: !squared && !showChat
+    });
 
-    setup.load();
+    $effect(() => {
+        void windowChrome.fullscreen;
+        void windowChrome.maximized;
+        untrack(() => {
+            sendMenuState();
+            reapplyTabBounds();
+        });
+    });
 
     setup.load();
 
@@ -257,10 +333,26 @@
 
     function faviconFor(rawUrl: string): string {
         try {
-            const host = new URL(rawUrl).hostname;
-            return host ? `https://www.google.com/s2/favicons?domain=${host}&sz=64` : '';
+            const u = new URL(rawUrl);
+            return `${u.origin}/favicon.ico`;
         } catch {
             return '';
+        }
+    }
+
+    function faviconFallback(e: Event, rawUrl: string) {
+        const img = e.currentTarget as HTMLImageElement;
+        if (img.dataset.fallback === 'ddg') {
+            img.style.opacity = '0';
+            img.style.display = 'none';
+            return;
+        }
+        img.dataset.fallback = 'ddg';
+        try {
+            const host = new URL(rawUrl).hostname;
+            img.src = `https://icons.duckduckgo.com/ip3/${host}.ico`;
+        } catch {
+            img.style.display = 'none';
         }
     }
 
@@ -277,12 +369,22 @@
         if (text && !text.includes('.') && !text.includes(' ')) {
             return text;
         }
+        const pdfMatch = /[?&]url=([^&]+\.pdf)/i.exec(url);
+        if (pdfMatch) {
+            try {
+                const file = decodeURIComponent(pdfMatch[1]);
+                const name = file.substring(file.lastIndexOf('/') + 1);
+                if (name) return name.replace(/\.pdf$/i, '');
+            } catch {}
+        }
         return domainOf(url);
     }
 
     let contentEl = $state<HTMLElement>();
     let menuBtnEl = $state<HTMLElement>();
+    let profileBtnEl = $state<HTMLElement>();
         const openedViews = new SvelteSet<string>();
+    const currentFavoriteActive = $derived(Boolean(activeTab?.url && favorites.hasUrl(activeTab.url)));
     function currentBounds() {
         return contentEl?.getBoundingClientRect();
     }
@@ -290,36 +392,71 @@
     function applyBounds(id: string): Promise<void> {
         const react = currentBounds();
         if (react && openedViews.has(id)) {
-            return setTabBounds(id, react);
+            return setTabBounds(id, react, tabCorners);
         }
         return Promise.resolve();
     }
 
-    let tabMenuOpen = $state(false);
+    let resyncTimers: ReturnType<typeof setTimeout>[] = [];
+    function reapplyTabBounds() {
+        for (const timer of resyncTimers) clearTimeout(timer);
+        resyncTimers = [];
+        if (!openedViews.has(activeId)) return;
+        const id = activeId;
+        const run = () => {
+            if (!openedViews.has(id)) return;
+            void applyBounds(id).catch(() => {});
+            const zoom = tabs.find((t) => t.id === id)?.zoom ?? 1;
+            if (zoom !== 1) setTabZoomWebview(id, zoom);
+        };
+        run();
+        resyncTimers = [120, 320, 700].map((delay) => setTimeout(run, delay));
+    }
+
     let miniPlayerOpen = $state(false);
+    let tabMenu = $state<{ x: number; y: number; tabId: string | null; grouped: boolean } | null>(null);
+    let tabMenuReset = $state(0);
+    function closeTabMenu() {
+        if (tabMenu) {
+            tabMenu = null;
+            tabMenuReset += 1;
+        }
+    }
     let mediaTabs = $derived(tabs.filter((t) => t.hadAudio && openedViews.has(t.id)));
 
     $effect(() => {
         if (miniPlayerOpen && mediaTabs.length === 0) miniPlayerOpen = false;
     });
 
-    $effect(() => {
-        if (tabMenuOpen || miniPlayerOpen) return;
-        const id = activeId;
-        const t = tabs.find((x) => x.id === id);
-        if (openedViews.has(id) && t?.hasNavigated) {
-            void applyBounds(id).then(() => showTabWebview(id));
-        }
-    });
+    let visibilityToken = 0;
+    const hiddenViews = new Set<string>();
 
-    $effect (() => {
-        for (const id of  openedViews) {
-            const t = tabs.find((x) => x.id === id);
-            if (id === activeId && t?.hasNavigated && !tabMenuOpen && !miniPlayerOpen) {
-                applyBounds(id).then(() => showTabWebview(id));
-            } else {
-                hideTabWebview(id);
-            }
+    function markShown(id: string) {
+        hiddenViews.delete(id);
+        for (const other of openedViews) {
+            if (other !== id) hiddenViews.add(other);
+        }
+    }
+
+    $effect(() => {
+        const token = ++visibilityToken;
+        const nextActive = activeId;
+        const activeVisible = openedViews.has(nextActive) && tabs.find((x) => x.id === nextActive)?.hasNavigated;
+
+        for (const id of openedViews) {
+            if (id === nextActive && activeVisible) continue;
+            if (hiddenViews.has(id)) continue;
+            hiddenViews.add(id);
+            hideTabWebview(id).catch(() => hiddenViews.delete(id));
+        }
+
+        if (activeVisible) {
+            applyBounds(nextActive)
+                .then(() => {
+                    if (token !== visibilityToken) return;
+                    return showTabWebview(nextActive).then(() => markShown(nextActive));
+                })
+                .catch(() => {});
         }
     });
 
@@ -328,11 +465,16 @@
     function sendMenuState() {
         emit('menu-position', menuAnchor);
         emit('menu-zoom-sync', {zoom: Math.round((activeTab?.zoom ?? 1) *100)});
-        emit('menu-theme', themeVars(theme.current));
+        emit('menu-theme', utilityVars());
+        emit('menu-state', { fullscreen: isFullscreen });
+    }
+
+    function utilityVars() {
+        return { ...themeVars(theme.current), '--win-radius': `${winRadius}px` };
     }
 
     function sendThemeToUtilityViews() {
-        const vars = themeVars(theme.current);
+        const vars = utilityVars();
         void emit('menu-theme', vars);
         void emit('overlay-theme', vars);
         void emit('permission-theme', vars);
@@ -341,6 +483,7 @@
     $effect(() => {
         void theme.preference;
         void theme.current.bg;
+        void winRadius;
         sendThemeToUtilityViews();
     });
 
@@ -368,28 +511,198 @@
         closeMenuWebview();
     }
 
-    $effect(() => {
-        const kind = showSettings ? 'settings' : showHistory ? 'history' : showDownloads ? 'downloads' : null;
-        if (!kind) {
-            closeOverlayWebview();
-            return;
-        }
-        const rect = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
-        openOverlayWebview(rect).then(() => {
-            emit('overlay-show', {
-                kind,
-                themeId: theme.preference,
-                searchEngine: setup.data.searchEngine
-            });
-            emit('overlay-theme', themeVars(theme.current));
+    type OverlayKind = 'settings' | 'history' | 'downloads' | 'media' | 'profile' | 'tabmenu' | 'groupedit' | null;
+
+    function currentOverlayKind(): OverlayKind {
+        if (showSettings) return 'settings';
+        if (showHistory) return 'history';
+        if (showDownloads) return 'downloads';
+        if (miniPlayerOpen) return 'media';
+        if (profileOpen) return 'profile';
+        if (tabMenu) return 'tabmenu';
+        if (renamePop) return 'groupedit';
+        return null;
+    }
+
+    function sendOverlayShow(kind: OverlayKind) {
+        if (!kind) return;
+        emit('overlay-show', {
+            kind,
+            themeId: theme.preference,
+            searchEngine: setup.data.searchEngine,
+            ...(kind === 'settings' ? { background: setup.data.background } : {})
         });
+        emit('overlay-theme', utilityVars());
+        if (kind === 'media') pushMediaState();
+        if (kind === 'profile') pushProfileState();
+        if (kind === 'tabmenu') pushTabMenuState();
+        if (kind === 'groupedit') pushGroupEditState();
+        if (kind === 'downloads') pushDownloadsState();
+    }
+
+    let overlayToken = 0;
+    let overlayTask: Promise<void> = Promise.resolve();
+    $effect(() => {
+        const kind = currentOverlayKind();
+        const token = ++overlayToken;
+        const rect = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+        overlayTask = overlayTask
+            .catch(() => {})
+            .then(async () => {
+                if (token !== overlayToken) return;
+                if (!kind) {
+                    await closeOverlayWebview();
+                    return;
+                }
+                await openOverlayWebview(rect);
+                if (token === overlayToken) sendOverlayShow(kind);
+            })
+            .catch(() => {});
     });
+
+    $effect(() => {
+        const unlisten = listen<{ kind: OverlayKind }>('overlay-request-state', (e) => {
+            if (e.payload?.kind === 'media') pushMediaState();
+            else if (e.payload?.kind === 'profile') pushProfileState();
+            else if (e.payload?.kind === 'tabmenu') pushTabMenuState();
+            else if (e.payload?.kind === 'groupedit') pushGroupEditState();
+        });
+        return () => unlisten.then((off) => off());
+    });
+
+    function pushMediaState() {
+        emit('overlay-media-state', {
+            tabs: mediaTabs.map((t) => ({
+                id: t.id,
+                title: t.title,
+                favicon: t.favicon,
+                muted: t.muted ?? false,
+                audible: t.audible ?? false
+            }))
+        });
+    }
+
+    function pushDownloadsState() {
+        emit('overlay-downloads-state', { entries: $state.snapshot(downloads.entries) });
+    }
+    $effect(() => {
+        void downloads.entries;
+        if (showDownloads) pushDownloadsState();
+    });
+
+    function pushProfileState() {
+        const box = profileBtnEl?.getBoundingClientRect();
+        emit('overlay-profile-state', {
+            name: setup.data.name,
+            avatar: setup.data.avatar,
+            x: box ? Math.max(6, box.left) : 8,
+            y: box ? box.bottom + 6 : 48
+        });
+    }
+
+    function pushGroupEditState() {
+        if (!renamePop) return;
+        emit('overlay-groupedit-state', {
+            groupId: renamePop.groupId,
+            name: renamePop.value,
+            color: renamePop.color,
+            colors: groupColors,
+            x: renamePop.x,
+            y: renamePop.y
+        });
+    }
+
+    function pushTabMenuState() {
+        if (!tabMenu) return;
+        const tab = tabMenu.tabId ? tabs.find((t) => t.id === tabMenu!.tabId) : null;
+        emit('overlay-tabmenu-state', {
+            x: tabMenu.x,
+            y: tabMenu.y,
+            tabId: tabMenu.tabId,
+            grouped: tabMenu.grouped,
+            muted: tab?.muted ?? false,
+            tabGroupId: tab?.groupId ?? null,
+            groups: tabGroups.map((g) => ({ id: g.id, name: g.name, color: g.color }))
+        });
+    }
+
+    $effect(() => {
+        if (miniPlayerOpen) pushMediaState();
+    });
+    $effect(() => {
+        if (profileOpen) pushProfileState();
+    });
+    $effect(() => {
+        if (tabMenu) pushTabMenuState();
+    });
+    $effect(() => {
+        if (renamePop) pushGroupEditState();
+    });
+    $effect(() => {
+        if (showDownloads) pushDownloadsState();
+    });
+
+    function restoreActiveTabVisibility() {
+        const t = tabs.find((x) => x.id === activeId);
+        if (t?.hasNavigated && openedViews.has(activeId)) {
+            applyBounds(activeId)
+                .then(() => showTabWebview(activeId))
+                .then(() => markShown(activeId))
+                .catch(() => {});
+        }
+    }
 
     $effect(() => {
         const unlistenClose = listen('overlay-close', () => {
             showSettings = false;
             showHistory = false;
             showDownloads = false;
+            miniPlayerOpen = false;
+            profileOpen = false;
+            renamePop = null;
+            closeTabMenu();
+            restoreActiveTabVisibility();
+        });
+        const unlistenClearData = listen('overlay-clear-data', () => {
+            resetAllData();
+        });
+        const unlistenTabAction = listen<{ action: string; tabId: string; groupId?: string; x?: number; y?: number }>('overlay-tab-action', (e) => {
+            const { action, tabId, groupId, x, y } = e.payload ?? {};
+            closeTabMenu();
+            if (action === 'mute' && tabId) toggleMuteTab(tabId);
+            else if (action === 'duplicate' && tabId) duplicateTab(tabId);
+            else if (action === 'closeothers' && tabId) closeOtherTabs(tabId);
+            else if (action === 'creategroup' && tabId) createTabGroup(tabId, { x, y });
+            else if (action === 'addtogroup' && tabId && groupId) addExistingTabToGroup(tabId, groupId);
+            else if (action === 'removefromgroup' && tabId) ungroupTab(tabId);
+        });
+        const unlistenGroupSave = listen<{ groupId: string; name: string; color: string }>('overlay-group-save', (e) => {
+            const payload = e.payload;
+            if (payload?.groupId) renameGroup(payload.groupId, payload.name, payload.color);
+            renamePop = null;
+        });
+        const unlistenGoto = listen<{ tabId: string }>('overlay-goto-tab', (e) => {
+            miniPlayerOpen = false;
+            restoreActiveTabVisibility();
+            if (e.payload?.tabId) void selectTab(e.payload.tabId);
+        });
+        const unlistenToggle = listen<{ tabId: string }>('overlay-media-toggle', (e) => {
+            if (e.payload?.tabId) tabMediaToggle(e.payload.tabId);
+        });
+        const unlistenMute = listen<{ tabId: string }>('overlay-media-mute', (e) => {
+            if (e.payload?.tabId) toggleMuteTab(e.payload.tabId);
+        });
+        const unlistenOpenSettings = listen('overlay-open-settings', () => {
+            profileOpen = false;
+            restoreActiveTabVisibility();
+            showSettings = true;
+        });
+        const unlistenProfileUpdated = listen<{ name?: string; avatar?: string | null }>('overlay-profile-updated', (e) => {
+            const name = e.payload?.name?.trim();
+            if (!name) return;
+            setup.data.name = name.slice(0, 40);
+            setup.data.avatar = e.payload?.avatar ?? null;
+            void setup.save();
         });
         const unlistenNavigate = listen<{ url: string }>('overlay-navigate', (e) => {
             showSettings = false;
@@ -398,18 +711,14 @@
             if (e.payload?.url) navigate(e.payload.url);
         });
         const unlistenReady = listen('overlay-ready', () => {
-
-            const kind = showSettings ? 'settings' : showHistory ? 'history' : showDownloads ? 'downloads' : null;
-            if (kind) {
-                emit('overlay-show', {
-                    kind,
-                    themeId: theme.preference,
-                    searchEngine: setup.data.searchEngine
-                });
-                emit('overlay-theme', themeVars(theme.current));
-            }
+            sendOverlayShow(currentOverlayKind());
         });
-        const unlistenSettings = listen<{ theme?: string; searchEngine?: string; adblock?: boolean }>('settings-changed', (e) => {
+        const unlistenDownloadsState = listen('overlay-request-downloads', () => pushDownloadsState());
+        const unlistenDownloadsClear = listen('overlay-downloads-clear', () => downloads.clear());
+        const unlistenDownloadsRemove = listen<{ id: string }>('overlay-downloads-remove', (e) => {
+            if (e.payload?.id) downloads.remove(e.payload.id);
+        });
+        const unlistenSettings = listen<{ theme?: string; searchEngine?: string; adblock?: boolean; showFavorites?: boolean; showRecent?: boolean; skipUngroupedTabs?: boolean; aiProvider?: string; background?: string | null }>('settings-changed', (e) => {
             const next = e.payload ?? {};
             let changed = false;
 
@@ -417,10 +726,27 @@
                 void setAdblockEnabled(next.adblock).catch(() => {});
             }
 
+            if (typeof next.showFavorites === 'boolean') {
+                prefs.setFavorites(next.showFavorites);
+            }
+            if (typeof next.showRecent === 'boolean') {
+                prefs.setRecent(next.showRecent);
+            }
+            if (typeof next.skipUngroupedTabs === 'boolean') {
+                prefs.setSkipUngroupedTabs(next.skipUngroupedTabs);
+            }
+
+            if (typeof next.aiProvider === 'string' && next.aiProvider !== prefs.aiProvider) {
+                prefs.selectProvider(next.aiProvider as typeof prefs.aiProvider);
+            }
+
             if (next.theme && (next.theme === 'system' || PRESET_THEMES.some((item) => item.id === next.theme))) {
                 setup.data.theme = next.theme;
-                setup.data.background = null;
                 theme.set(next.theme);
+                changed = true;
+            }
+            if (next.background !== undefined) {
+                setup.data.background = next.background;
                 changed = true;
             }
             if (next.searchEngine && setup.data.searchEngine !== next.searchEngine) {
@@ -434,8 +760,19 @@
         });
         return () => {
             unlistenClose.then((off) => off());
+            unlistenClearData.then((off) => off());
+            unlistenGoto.then((off) => off());
+            unlistenToggle.then((off) => off());
+            unlistenMute.then((off) => off());
+            unlistenOpenSettings.then((off) => off());
+            unlistenProfileUpdated.then((off) => off());
+            unlistenTabAction.then((off) => off());
+            unlistenGroupSave.then((off) => off());
             unlistenNavigate.then((off) => off());
             unlistenReady.then((off) => off());
+            unlistenDownloadsState.then((off) => off());
+            unlistenDownloadsClear.then((off) => off());
+            unlistenDownloadsRemove.then((off) => off());
             unlistenSettings.then((off) => off());
         };
     });
@@ -456,7 +793,6 @@
             else if (action === 'settings') showSettings = true;
             else if (action === 'history') showHistory = true;
             else if (action === 'downloads') showDownloads = true;
-            else if (action === 'cleardata') resetAllData();
             else if (action === 'print') printActiveTab();
             else if (action === 'fullscreen') toggleFullscreen();
         });
@@ -479,7 +815,7 @@
             else if (action === 'closetab') closeTab(activeId);
             else if (action === 'history') showHistory = true;
             else if (action === 'print') printActiveTab();
-            else if (action === 'cleardata') resetAllData();
+            else if (action === 'fullscreen') void toggleFullscreen();
         });
         return () => {
             unlisten.then((off) => off());
@@ -494,18 +830,17 @@
     async function toggleFullscreen() {
         const win = getCurrentWindow();
         try {
-            const isFull = await win.isFullscreen();
-
-            if (!isFull && os === 'windows') {
-                await win.setMaxSize(null);
+            const next = !(await win.isFullscreen());
+            await win.setFullscreen(next);
+            await windowChrome.refresh();
+            sendMenuState();
+        } catch (e) {
+            console.error('toggleFullscreen failed, falling back:', e);
+            try {
+                await windowChrome.setFullscreen(!windowChrome.fullscreen);
+            } catch (e2) {
+                console.error('windowChrome.setFullscreen fallback also failed:', e2);
             }
-
-            await win.setFullscreen(!isFull);
-
-            if (isFull && os === 'windows') {
-                await win.setMaxSize(new LogicalSize(screen.availWidth, screen.availHeight));
-            }
-        } catch {
         }
     }
 
@@ -522,7 +857,7 @@
                 frame = null;
                 const rect = currentBounds();
                 if (rect && openedViews.has(activeId)) {
-                    setTabBounds(activeId, rect);
+                    setTabBounds(activeId, rect, tabCorners);
                 }
             });
         });
@@ -544,6 +879,12 @@
             if (url === 'about:blank' || url.startsWith('data:')) return;
             const tab = tabs.find((t) => t.id === tabId);
             if (!tab) return;
+            if (tab.url && tab.url !== url && (tab.audible || tab.hadAudio)) {
+                tab.audible = false;
+                tab.hadAudio = false;
+                if (!tab.muted) {
+                }
+            }
             tab.url = url;
             tab.favicon = faviconFor(url);
             void reading.capture(url);
@@ -558,11 +899,13 @@
             const sinceAction = Date.now() - (lastActionAt.get(tabId) ?? 0);
             if (sinceAction < REDIRECT_WINDOW_MS && tab.cursor >= 0) {
                 tab.hist[tab.cursor] = url;
+                history.record(url, tab.title, null);
                 return;
             }
             tab.hist = tab?.hist.slice(0, tab.cursor + 1);
             tab.hist.push(url);
             tab.cursor = tab?.hist.length - 1;
+            history.record(url, tab.title, null);
         });
         return () => {
             unlisten.then((off) => off());
@@ -583,9 +926,24 @@
     });
 
     $effect(() => {
+        const unlisten = listen<{ tabId: string; url: string }>('tab-popup', (e) => {
+            const url = e.payload?.url;
+            if (!url || !/^https?:/i.test(url)) return;
+            const id = crypto.randomUUID();
+            tabs = [...tabs, { id, title: 'New tab', url: '', searchText: '', hasNavigated: false, hist: [], cursor: -1, zoom: 1 }];
+            activeId = id;
+            navigate(url);
+        });
+        return () => {
+            unlisten.then((off) => off());
+        };
+    });
+
+    $effect(() => {
         const unlisten = onTabTitleChanged(({ tabId, title }) => {
             const tab = tabs.find((t) => t.id === tabId);
             if (!tab || !title.trim()) return;
+            if (navPending.has(tabId)) return;
             tab.title = title.trim();
         });
         return () => {
@@ -606,8 +964,10 @@
     
 
     function newTab() {
+        const nextTabs = [...tabs];
         const id = crypto.randomUUID();
-        tabs = [...tabs, {id, title: 'New tab', url: '', searchText: '', hasNavigated: false, hist: [], cursor: -1, zoom: 1}];
+        nextTabs.push({ id, title: 'New tab', url: '', searchText: '', hasNavigated: false, hist: [], cursor: -1, zoom: 1 });
+        tabs = nextTabs;
         activeId = id;
     }
 
@@ -626,7 +986,7 @@
             activeId = nextActive.id;
             if (openedViews.has(nextActive.id) && nextActive.hasNavigated) {
                 await applyBounds(nextActive.id).catch(() => {});
-                await showTabWebview(nextActive.id).catch(() => {});
+                await showTabWebview(nextActive.id).then(() => markShown(nextActive.id)).catch(() => {});
             }
         }
 
@@ -636,6 +996,7 @@
         navPending.delete(id);
         if (openedViews.has(id)) {
             openedViews.delete(id);
+            hiddenViews.delete(id);
             await tabStopMedia(id).catch(() => {});
             await closeTabWebview(id).catch(() => {});
         }
@@ -651,7 +1012,7 @@
         if (tab && tab.hasNavigated && tab.url && !openedViews.has(id)) {
             const rect = currentBounds();
             if (rect) {
-                await openTabWebview(id, tab.url, rect).catch(() => {});
+                await openTabWebview(id, tab.url, rect, tabCorners).catch(() => {});
                 openedViews.add(id);
                 if (tab.zoom !== 1) setTabZoomWebview(id, tab.zoom);
                 if (tab.muted) setTabMutedWebview(id, true);
@@ -712,18 +1073,19 @@
         const id = crypto.randomUUID();
         tabGroups = [...tabGroups, {
             id,
-            name: `Group ${tabGroups.length + 1}`,
+            name: 'Untitled group',
             color: groupColors[tabGroups.length % groupColors.length]
         }];
         return id;
     }
-    function createTabGroup(tabId?: string | null) {
+    function createTabGroup(tabId?: string | null, anchor?: { x?: number; y?: number }) {
         const targetId = tabId ?? activeId;
         if (!tabs.some((tab) => tab.id === targetId)) return;
         const id = newGroupId();
         const nextTabs = tabs.map((tab) => tab.id === targetId ? { ...tab, groupId: id } : tab);
         tabs = nextTabs;
         pruneGroups(nextTabs);
+        openGroupRename(id, anchor?.x ?? 100, anchor?.y ?? 80);
     }
     function addTabToGroup(groupId: string) {
         const id = crypto.randomUUID();
@@ -747,10 +1109,27 @@
         tabs = nextTabs;
         pruneGroups(nextTabs);
     }
-    function renameGroup(groupId: string, name: string) {
+    function renameGroup(groupId: string, name: string, color?: string) {
         const trimmed = name.trim();
-        if (!trimmed) return;
-        tabGroups = tabGroups.map((g) => g.id === groupId ? { ...g, name: trimmed } : g);
+        if (!trimmed && !color) return;
+        tabGroups = tabGroups.map((g) => g.id === groupId
+            ? { ...g, name: trimmed || g.name, color: color ?? g.color }
+            : g);
+    }
+
+    let renamePop = $state<{ groupId: string; value: string; color: string; x: number; y: number } | null>(null);
+    function openGroupRename(groupId: string, x: number, y: number) {
+        const group = tabGroups.find((item) => item.id === groupId);
+        if (!group) return;
+        const width = 250;
+        const height = 150;
+        renamePop = {
+            groupId: group.id,
+            value: group.name,
+            color: group.color,
+            x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
+            y: Math.max(8, Math.min(y, window.innerHeight - height - 8))
+        };
     }
     function ungroupTab(tabId: string) {
         const nextTabs = tabs.map((tab) => tab.id === tabId ? { ...tab, groupId: undefined } : tab);
@@ -826,7 +1205,7 @@
             if (active.hasNavigated && active.url) {
                 const rect = currentBounds();
                 if (rect) {
-                    await openTabWebview(active.id, active.url, rect).catch(() => {});
+                    await openTabWebview(active.id, active.url, rect, tabCorners).catch(() => {});
                     openedViews.add(active.id);
                     if (active.zoom !== 1) setTabZoomWebview(active.id, active.zoom);
                 }
@@ -869,7 +1248,7 @@
                 if (openedViews.has(tab.id)) {
                     navigateTabWebview(tab.id, url);
                 } else {
-                    openTabWebview(tab.id, url, rect);
+                    openTabWebview(tab.id, url, rect, tabCorners);
                     openedViews.add(tab.id);
                     if (tab.zoom !== 1) setTabZoomWebview(tab.id, tab.zoom);
                     if (tab.muted) setTabMutedWebview(tab.id, true);
@@ -891,18 +1270,18 @@
     function zoomReset() { setZoom(1); }
 
     function handleShortcuts(e: KeyboardEvent) {
-        if (e.key === 'Escape' && miniPlayerOpen) { miniPlayerOpen = false; return;}
-        if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); return; }
+        if (e.key === 'Escape' && miniPlayerOpen) { miniPlayerOpen = false; restoreActiveTabVisibility(); return;}
+        if (e.key === 'F11' || e.code === 'F11' || e.keyCode === 122) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            e.stopPropagation();
+            void toggleFullscreen();
+            return;
+        }
 
         if (!(e.ctrlKey || e.metaKey)) return;
 
         const key = e.key.toLowerCase();
-
-        if (e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
-            e.preventDefault();
-            resetAllData();
-            return;
-        }
 
         if (e.shiftKey) return;
 
@@ -968,9 +1347,8 @@
         tabForward(tab.id);
     }
 
-        let addressBarEl = $state<HTMLElement>();
     function focusAddressBar() {
-        const input = addressBarEl?.querySelector('input');
+        const input = document.querySelector<HTMLInputElement>('.navbar input');
         if (input) {
             input.focus();
             input.select();
@@ -984,7 +1362,7 @@
             else if (action === 'history') showHistory = true;
             else if (action === 'print') printActiveTab();
             else if (action === 'search') focusAddressBar();
-            else if (action === 'cleardata') history.clear();
+            else if (action === 'chat') showChat = !showChat;
         });
         return () => { unlisten.then((off) => off()); };
     });
@@ -993,7 +1371,7 @@
 
 <svelte:window onkeydown={handleShortcuts} />
 
-<div class="shell">
+<div class="shell" class:fullscreen={isFullscreen}>
     {#if downloadToasts.length}
         <div class="download-stack" aria-live="polite" aria-label="Download status">
             {#each downloadToasts as toast (toast.id)}
@@ -1036,7 +1414,7 @@
     {/snippet}
 
     {#snippet profileButton()}
-        <button class="top-profile" type="button" title="Profile settings" onclick={() => (showSettings = true)}>
+        <button bind:this={profileBtnEl} class="top-profile" type="button" title="Profile" aria-haspopup="menu" aria-expanded={profileOpen} onclick={() => (profileOpen = !profileOpen)}>
             <span class="top-avatar">
                 {#if setup.data.avatar}
                     <img src={setup.data.avatar} alt="" />
@@ -1052,8 +1430,8 @@
         {#if favorites.items.length}
             <div class="favorite-pages" class:expanded={favBarExpanded} aria-label="Favorite pages">
                 {#each (favBarExpanded ? favorites.items : favorites.items.slice(0, 3)) as favorite (favorite.id)}
-                    <button class="favorite-page" type="button" title={favorite.title} aria-label={favorite.title} onclick={() => navigate(favorite.url)}>
-                        <img src={faviconFor(favorite.url)} alt="" />
+                    <button class="favorite-page" type="button" title={favorite.title} aria-label={favorite.title} onclick={() => openFavorite(favorite.url)}>
+                        <img src={faviconFor(favorite.url)} alt="" onerror={(e) => faviconFallback(e, favorite.url)} />
                     </button>
                 {/each}
                 {#if favorites.items.length > 3}
@@ -1068,15 +1446,14 @@
     <div class="topbar" class:mac={os === 'macos'}>
         {#if os === 'macos'}
             <WindowControls platform={os} />
+        {:else}
+            {@render menuButton()}
         {/if}
 
-        {@render menuButton()}
         {@render profileButton()}
         {@render favoritePages()}
 
-        <div class="gap" role="presentation"></div>
-
-		<TabBar
+        <TabBar
             {tabs}
             {activeId}
             groups={tabGroups}
@@ -1084,73 +1461,40 @@
             onclose={closeTab}
             onnew={newTab}
             onreorder={moveTab}
-            oncreateGroup={createTabGroup}
-            onungroup={ungroupTab}
             ongroupdrop={groupDroppedTabs}
             onaddtogroup={addTabToGroup}
-            onaddexistingtogroup={addExistingTabToGroup}
-            onrenamegroup={renameGroup}
+            oneditgroup={openGroupRename}
             onmute={toggleMuteTab}
-            onduplicate={duplicateTab}
-            oncloseothers={closeOtherTabs}
-            onmenutoggle={(open) => (tabMenuOpen = open)}
+            onmenustate={(state) => (tabMenu = state)}
+            menuResetToken={tabMenuReset}
         />
 
         <div class="drag-region" data-tauri-drag-region role="presentation" ondblclick={toggleMaximizeOnDrag}></div>
 
-        {#if os !== 'macos'}
+        {#if os === 'macos'}
+            {@render menuButton()}
+        {:else}
             <WindowControls platform={os} />
         {/if}
     </div>
-    {#key activeTab?.id}
-		<AddressBar
+    <div class="addressbar-wrap">
+        <AddressBar
             url={activeTab?.hasNavigated ? (activeTab?.url || activeTab?.searchText || '') : ''}
             onnavigate={navigate}
             onchat={() => (showChat = !showChat)}
+            chatOpen={showChat}
             mediaActive={mediaTabs.length > 0}
+            mediaOpen={miniPlayerOpen}
             onmedia={() => (miniPlayerOpen = !miniPlayerOpen)}
             onback={goBack}
             onforward={goForward}
             onreload={() => activeTab?.hasNavigated && tabReload(activeId)}
             canBack={(activeTab?.cursor ?? -1) > -1}
             canForward={(activeTab?.cursor ?? -1) < (activeTab?.hist.length ?? 0) - 1}
+            favoriteActive={currentFavoriteActive}
+            onfavorite={toggleCurrentFavorite}
         />
-    {/key}
-
-    {#if miniPlayerOpen && mediaTabs.length}
-        <div class="miniplayer-scrim" role="presentation" onclick={() => (miniPlayerOpen = false)}></div>
-        <div class="miniplayer" role="dialog" aria-label="Media playing in tabs">
-            <p class="mp-title">Playing in tabs</p>
-            {#each mediaTabs as tab (tab.id)}
-                <div class="mp-row">
-                    <span class="mp-icon">
-                        {#if tab.favicon}
-                            <img src={tab.favicon} alt="" />
-                        {:else}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
-                        {/if}
-                    </span>
-                    <button class="mp-name" type="button" title="Go to tab" onclick={() => { miniPlayerOpen = false; void selectTab(tab.id); }}>
-                        {tab.title}
-                    </button>
-                    <button class="mp-ctl" type="button" aria-label={tab.audible ? 'Pause' : 'Play'} onclick={() => tabMediaToggle(tab.id)}>
-                        {#if tab.audible}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" /></svg>
-                        {:else}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z" /></svg>
-                        {/if}
-                    </button>
-                    <button class="mp-ctl" type="button" aria-label={tab.muted ? 'Unmute' : 'Mute'} onclick={() => toggleMuteTab(tab.id)}>
-                        {#if tab.muted}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l4-4v14z" /><path d="M3 3l18 18" /></svg>
-                        {:else}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l4-4v14z" /></svg>
-                        {/if}
-                    </button>
-                </div>
-            {/each}
-        </div>
-    {/if}
+    </div>
 
     <div class="body">
         <div class="content" bind:this={contentEl}>
@@ -1178,6 +1522,7 @@
             >
                 <div class="home-inner">
                     <h1 class="greeting">{greeting}</h1>
+                    <p class="clock">{clock}</p>
 
                     {#if prefs.showFavorites}
                     <section class="section">
@@ -1196,10 +1541,10 @@
                                 data-fav-index={i}
                                 role="group"
                                 aria-label={fav.title}
-                                onpointerdown={(e) => favEditing && grabFavorite(i, e)}
+                                onpointerdown={(e) => grabFavorite(i, e)}
                             >
-                                <button class="fav" type="button" onclick={() => !favEditing && navigate(fav.url)}>
-                                    <span class="fav-icon"><img src={faviconFor(fav.url)} alt="" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.opacity = '0')} /></span>
+                                <button class="fav" type="button" onclick={() => !favEditing && openFavorite(fav.url)}>
+                                    <span class="fav-icon"><img src={faviconFor(fav.url)} alt="" onerror={(e) => faviconFallback(e, fav.url)} /></span>
                                     <span class="fav-title">{fav.title}</span>
                                 </button>
                                 {#if favEditing}
@@ -1234,7 +1579,9 @@
                         <div class="recent-grid">
                             {#each history.entries.slice(0, 9) as entry (entry.id)}
                             <button class="recent" type="button" onclick={() => navigate(entry.query ?? entry.url)}>
-                                <span class="recent-icon">{initialOf(entry.query ?? entry.title ?? entry.url)}</span>
+                                <span class="recent-icon">
+                                    <img src={faviconFor(entry.url)} alt="" onerror={(e) => faviconFallback(e, entry.url)} />
+                                </span>
                                 <span class="recent-text">
                                     <span class="recent-title">{entry.query ?? entry.title}</span>
                                     <span class="recent-url">{domainOf(entry.url)}</span>
@@ -1250,9 +1597,10 @@
         </div>
 
         {#if showChat}
-        <Aipanel 
+        <Aipanel
+            username={setup.data.name.trim() || 'there'}
             pageUrl={activeTab?.hasNavigated ? (activeTab?.url ?? null) : null}
-            onclose={() => (showChat = false)} 
+            onclose={() => (showChat = false)}
         />
         {/if}
     </div>
@@ -1285,158 +1633,66 @@
         box-sizing: border-box;
         position: relative;
         z-index: 10001;
+        user-select: none;
+        -webkit-user-select: none;
     }
 
     .download-stack {
         position: fixed;
         z-index: 30;
-        top: 48px;
-        right: 14px;
+        top: 96px;
+        left: 50%;
+        transform: translateX(-50%);
         display: grid;
-        gap: 6px;
-        width: min(350px, calc(100vw - 28px));
+        gap: 8px;
+        width: min(360px, calc(100vw - 28px));
         pointer-events: none;
     }
 
     .download-toast {
         display: flex;
         align-items: center;
-        gap: 9px;
-        min-height: 34px;
-        padding: 4px 6px 4px 7px;
+        gap: 10px;
+        min-height: 44px;
+        padding: 8px 12px 8px 8px;
         overflow: hidden;
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        background: color-mix(in srgb, var(--bg-page) 94%, transparent);
-        box-shadow: 0 7px 18px var(--shadow);
-        backdrop-filter: blur(14px);
+        border: 1px solid var(--border-strong);
+        border-radius: 12px;
+        background: var(--bg-page);
+        box-shadow: 0 16px 36px -10px color-mix(in srgb, #000 34%, transparent), 0 2px 8px color-mix(in srgb, #000 12%, transparent);
         color: var(--text);
         pointer-events: auto;
-        animation: download-in .18s ease-out;
+        animation: download-in .22s cubic-bezier(0.32, 0.72, 0, 1) forwards;
     }
 
     .download-icon {
         display: grid;
         place-items: center;
         flex: 0 0 auto;
-        width: 24px;
-        height: 24px;
-        border-radius: 7px;
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
         background: color-mix(in srgb, var(--accent) 17%, transparent);
         color: var(--accent);
     }
-    .download-toast.complete .download-icon { color: #27875a; background: rgba(39, 135, 90, .15); }
-    .download-toast.failed .download-icon { color: #c14545; background: rgba(193, 69, 69, .14); }
+    .download-toast.complete .download-icon { color: var(--success); background: color-mix(in srgb, var(--success) 18%, transparent); }
+    .download-toast.failed .download-icon { color: var(--danger); background: color-mix(in srgb, var(--danger) 18%, transparent); }
     .download-icon svg, .download-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
 
-    .download-copy { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; }
-    .download-title { flex: 0 0 auto; font-size: 11px; font-weight: 700; }
-    .download-file { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .download-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+    .download-title { font-size: 13px; font-weight: 700; line-height: 1.3; }
+    .download-file { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: 11.5px; font-weight: 500; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
     .download-close { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
     .download-close:hover { background: var(--hover); color: var(--text); }
 
-    @keyframes download-in { from { opacity: 0; transform: translateY(-5px); } }
-
-    .miniplayer-scrim {
-        position: fixed;
-        inset: 0;
-        z-index: 24;
-        background: transparent;
-    }
-
-    .miniplayer {
-        position: fixed;
-        z-index: 25;
-        top: 92px;
-        right: 14px;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        width: min(320px, calc(100vw - 28px));
-        padding: 10px;
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        background: var(--bg-page);
-        box-shadow: 0 12px 32px var(--shadow);
-        animation: download-in .16s ease-out;
-    }
-
-    .mp-title {
-        margin: 0 0 6px;
-        padding: 0 4px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: .05em;
-        text-transform: uppercase;
-        color: var(--text-muted);
-    }
-
-    .mp-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px;
-        border-radius: 9px;
-    }
-    .mp-row:hover { background: var(--hover); }
-
-    .mp-icon {
-        display: grid;
-        place-items: center;
-        flex: 0 0 auto;
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
-        background: var(--field);
-        color: var(--accent);
-        overflow: hidden;
-    }
-    .mp-icon img { width: 15px; height: 15px; border-radius: 4px; object-fit: contain; }
-    .mp-icon svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-
-    .mp-name {
-        min-width: 0;
-        flex: 1;
-        overflow: hidden;
-        padding: 0;
-        border: none;
-        background: transparent;
-        color: var(--text);
-        font: inherit;
-        font-size: 12.5px;
-        font-weight: 550;
-        text-align: left;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-        cursor: pointer;
-    }
-    .mp-name:hover { color: var(--accent); }
-
-    .mp-ctl {
-        display: grid;
-        place-items: center;
-        flex: 0 0 auto;
-        width: 26px;
-        height: 26px;
-        padding: 0;
-        border: none;
-        border-radius: 7px;
-        background: transparent;
-        color: var(--text-soft);
-        cursor: pointer;
-    }
-    .mp-ctl:hover { background: var(--field); color: var(--text); }
-    .mp-ctl svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-
-    .gap {
-        flex: 0 0 8px;
-        align-self: stretch;
-        -webkit-app-region: drag;
+    @keyframes download-in {
+        from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
     }
 
     .drag-region {
         flex: 1 1 auto;
-        min-width: 8px;
+        min-width: 40px;
         align-self: stretch;
         -webkit-app-region: drag;
     }
@@ -1445,9 +1701,11 @@
         position: relative;
         display: flex;
         align-items: center;
+        justify-content: center;
         flex: 0 0 auto;
-        margin-left: 4px;
-        padding: 0 5px;
+        width: 36px;
+        height: 100%;
+        margin-left: 2px;
         -webkit-app-region: no-drag;
     }
 
@@ -1486,11 +1744,11 @@
         min-width: 34px;
         max-width: 150px;
         height: 30px;
-        margin-left: 4px;
+        margin-left: 6px;
         padding: 3px 10px 3px 4px;
         overflow: hidden;
-        border: 1px solid var(--border);
-        border-radius: 999px;
+        border: none;
+        border-radius: 8px;
         background: transparent;
         color: var(--text);
         font: inherit;
@@ -1498,9 +1756,9 @@
         font-weight: 600;
         cursor: pointer;
         -webkit-app-region: no-drag;
-        transition: background-color .14s ease, border-color .14s ease;
+        transition: background-color .14s ease;
     }
-    .top-profile:hover { background: var(--hover); border-color: var(--border-strong); }
+    .top-profile:hover { background: var(--hover); }
     .top-avatar {
         display: grid;
         place-items: center;
@@ -1569,6 +1827,9 @@
         .menubtn svg {
             transition: none;
         }
+        .download-toast {
+            animation: none;
+        }
     }
 
     .body { 
@@ -1577,6 +1838,9 @@
         display: flex; 
         overflow: hidden;
         background: var(--bg-chrome);
+        border-bottom-left-radius: var(--win-radius, 0px);
+        border-bottom-right-radius: var(--win-radius, 0px);
+        padding: 0 var(--win-edge, 0px) var(--win-edge, 0px);
     }
 
     .content {
@@ -1595,19 +1859,19 @@
         .top-username { max-width: 60px; font-size: 11px; }
         .favorite-pages { margin-left: 2px; }
         .drag-region { min-width: 4px; }
-    }
-    @media (max-width: 720px) {
+    }    @media (max-width: 720px) {
         .top-username { display: none; }
         .top-profile { flex-basis: 34px; padding-right: 4px; }
         .favorite-pages { display: none; }
         .drag-region { min-width: 4px; }
     }
-    .placeholder { text-align: center; color: var(--text-muted); margin: auto;}
-    .placeholder i {font-size: 32px;}
+    .placeholder { text-align: center; color: var(--text-muted); margin: auto;}    .placeholder i {font-size: 32px;}
     .placeholder code {
         font-size: 12px; color: var(--text-soft);
         background: var(--field); padding: 3px 8px; border-radius: 6px;
-
+        -webkit-user-select: text;
+        user-select: text;
+        cursor: auto;
     }
     .placeholder, .home {
         animation: content-fade 180ms ease-out;
@@ -1632,21 +1896,15 @@
         text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
     }
 
-    .home.has-bg .fav-icon,
-    .home.has-bg .recent {
-        background: rgba(255, 255, 255, 0.86);
-        backdrop-filter: blur(6px);
-    }
-
     .home.has-bg .fav-title {
         color: var(--home-text);
         text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
     }
 
     .home.has-bg .editbtn {
-        background: rgba(255, 255, 255, 0.86);
+        background: rgba(255, 255, 255, 0.88);
         backdrop-filter: blur(6px);
-        color: var(--text);
+        color: #1c1917;
     }
 
     .home-inner {
@@ -1656,14 +1914,28 @@
     }
 
     .greeting {
-        margin: 0 0 40px;
+        margin: 0;
         font-size: 30px;
         font-weight: 500;
         color: var(--text);
         text-align: center;
     }
 
-    .section { margin-bottom: 40px; }
+    .clock {
+        margin: 6px 0 40px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-muted);
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+    }
+    .home.has-bg .clock {
+        color: var(--home-text);
+        opacity: 0.85;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    }
+
+    .section { margin-bottom: 52px; }
     .section:last-child { margin-bottom: 0; }
 
     .section h2 {
@@ -1711,25 +1983,13 @@
 
     .fav-tile.editing {
         cursor: grab;
-        animation: fav-wiggle 0.22s ease-in-out infinite alternate;
     }
 
     .fav-tile.dragging {
         opacity: 0.6;
-        animation: none;
         z-index: 2;
         cursor: grabbing;
         pointer-events: none;
-    }
-
-    .fav-tile.dragging .fav-icon {
-        transform: none;
-        box-shadow: none;
-    }
-
-    @keyframes fav-wiggle {
-        from { transform: rotate(-0.6deg); }
-        to { transform: rotate(0.6deg); }
     }
 
     .fav {
@@ -1757,22 +2017,21 @@
         width: 56px;
         height: 56px;
         border-radius: 14px;
-        background: var(--field);
+        background: transparent;
         color: var(--accent);
         font-size: 22px;
         font-weight: 600;
-        transition: transform 0.14s ease, box-shadow 0.14s ease;
+        transition: background-color 0.14s ease;
     }
     .fav-icon img {
-        width: 26px;
-        height: 26px;
+        width: 28px;
+        height: 28px;
         border-radius: 6px;
         object-fit: contain;
     }
 
     .fav:hover .fav-icon {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px var(--border-strong);
+        background: color-mix(in srgb, var(--text) 7%, transparent);
     }
 
     .add-icon {
@@ -1813,13 +2072,14 @@
     }
 
     .fav-ctl.remove {
-        background: #c0392b;
+        background: color-mix(in srgb, var(--danger) 20%, var(--bg-page));
+        color: var(--danger);
     }
 
     .recent-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-        gap: 10px;
+        gap: 12px;
     }
 
     .recent {
@@ -1846,13 +2106,15 @@
         align-items: center;
         justify-content: center;
         flex: 0 0 auto;
-        width: 34px;
-        height: 34px;
-        border-radius: 9px;
-        background: var(--field);
-        color: var(--accent);
-        font-size: 14px;
-        font-weight: 600;
+        width: 24px;
+        height: 24px;
+        background: transparent;
+    }
+    .recent-icon img {
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        object-fit: contain;
     }
 
     .recent-text {
@@ -1881,5 +2143,14 @@
     @media (max-width: 560px) {
         .home { padding: 32px 20px 40px; }
         .greeting { font-size: 25px; margin-bottom: 30px; }
+    }
+
+    .shell.fullscreen {
+        height: 100vh;
+        height: 100dvh;
+    }
+
+    .shell.fullscreen .content {
+        border-radius: 0;
     }
 </style>

@@ -72,7 +72,7 @@
         border-radius: 12px;
         background: var(--accent, #37373f);
         padding: 14px 32px;
-        color: white;
+        color: var(--accent-contrast, #1c1917);
         font-weight: 600;
         text-transform:uppercase;
         letter-spacing: 1.5px;

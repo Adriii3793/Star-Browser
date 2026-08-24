@@ -28,13 +28,42 @@ export interface SearchEngine {
     initial: string;
     color: string;
     url: string;
+    logo: string;
 }
 
 export const SEARCH_ENGINES: SearchEngine[] = [
-    { id: 'google', name: 'Google', initial: 'G', color: '#4285F4', url: 'https://www.google.com/search?q=' },
-    { id: 'duckduckgo', name: 'DuckDuckGo', initial: 'D', color: '#DE5833', url: 'https://duckduckgo.com/?q=' },
-    { id: 'brave', name: 'Brave', initial: 'B', color: '#FB542B', url: 'https://search.brave.com/search?q=' },
-    { id: 'bing', name: 'Bing', initial: 'B', color: '#008373', url: 'https://www.bing.com/search?q=' }
+    {
+        id: 'google',
+        name: 'Google',
+        initial: 'G',
+        color: '#4285F4',
+        url: 'https://www.google.com/search?q=',
+        logo: 'https://www.google.com/s2/favicons?domain=google.com&sz=64'
+    },
+    {
+        id: 'duckduckgo',
+        name: 'DuckDuckGo',
+        initial: 'D',
+        color: '#DE5833',
+        url: 'https://duckduckgo.com/?q=',
+        logo: 'https://www.google.com/s2/favicons?domain=duckduckgo.com&sz=64'
+    },
+    {
+        id: 'brave',
+        name: 'Brave',
+        initial: 'B',
+        color: '#FB542B',
+        url: 'https://search.brave.com/search?q=',
+        logo: 'https://www.google.com/s2/favicons?domain=brave.com&sz=64'
+    },
+    {
+        id: 'bing',
+        name: 'Bing',
+        initial: 'B',
+        color: '#008373',
+        url: 'https://www.bing.com/search?q=',
+        logo: 'https://www.bing.com/favicon.ico'
+    }
 ];
 
 export const STEPS = ['loading', 'welcome', 'profile', 'search', 'style', 'review'] as const;

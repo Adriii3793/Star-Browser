@@ -42,8 +42,8 @@
                 <img src="/avatars/default.svg" alt="" />
             {/if}
         </div>
-        <button class="upload" type="button" aria-label="Upload Photo" onclick={() => fileEl?.click()}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+        <button class="upload" type="button" aria-label="Change photo" title="Change photo" onclick={() => fileEl?.click()}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4" /></svg>
         </button>
     </div>
     <label class="field">
@@ -105,7 +105,7 @@
         border: 3px solid var(--bg-page, #fff);
         border-radius: 50%;
         background: var(--accent);
-        color: #fff;
+        color: var(--accent-contrast, #1c1917);
         cursor: pointer;
     }
     .upload svg {
@@ -130,7 +130,7 @@
     }
     .field input {
         padding: 11px 14px;
-        border:1px solid rgba(74, 58, 46, .16);
+        border: 1px solid var(--border-strong);
         border-radius: 10px;
         background: var(--bg-page);
         color: var(--text);

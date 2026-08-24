@@ -156,7 +156,7 @@
     .error {
         margin: 0;
         font-size: 12px;
-        color: #c0392b;
+        color: var(--danger);
     }
 
     .actions {

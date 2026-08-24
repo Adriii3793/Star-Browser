@@ -1,13 +1,13 @@
 use std::sync::OnceLock;
 use std::time::Duration;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 16_000;
 const MAX_IMAGES: usize = 12;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageContext {
     pub url: String,

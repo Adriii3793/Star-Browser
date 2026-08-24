@@ -35,7 +35,7 @@
 
   let setupDone = $state<boolean | null>(null);
   let os = $state<'macos' | 'windows' | 'linux'>('windows');
-  let squared = $derived(windowChrome.maximized);
+  let squared = $derived(windowChrome.squared);
 
   type ResizeDir =
     | 'North' | 'South' | 'East' | 'West'
@@ -48,11 +48,6 @@
       label: getCurrentWindow().label,
       value: direction
     });
-  }
-
-  function toggleMaximizeOnDrag(e: MouseEvent) {
-    if (e.button !== 0 || setupDone !== true) return;
-    windowChrome.toggle();
   }
 
   async function enterSetupWindowMode() {
@@ -101,21 +96,19 @@
   });
 </script>
 
-<div class="app" class:rounded={(os === 'macos' || os === 'windows') && !squared}>
+<div
+  class="app"
+  class:rounded={(os === 'macos' || os === 'windows') && !squared}
+  class:setup={setupDone !== true}
+>
   {#if setupDone === null || setupDone === false}
-    <div class="titlebar" class:mac={os === 'macos'}>
+    <div class="titlebar">
       {#if os === 'macos'}
-        <WindowControls platform={os} />
-        <div class="tabs">
-          <span class="title" data-tauri-drag-region>star</span>
-        </div>
-        <div class="drag-region" data-tauri-drag-region role="presentation" ondblclick={toggleMaximizeOnDrag}></div>
+        <WindowControls platform={os} maximizable={false} />
+        <div class="drag-region" data-tauri-drag-region role="presentation"></div>
       {:else}
-        <div class="tabs">
-          <span class="title" data-tauri-drag-region>star</span>
-        </div>
-        <div class="drag-region" data-tauri-drag-region role="presentation" ondblclick={toggleMaximizeOnDrag}></div>
-        <WindowControls platform={os} />
+        <div class="drag-region" data-tauri-drag-region role="presentation"></div>
+        <WindowControls platform={os} maximizable={false} />
       {/if}
     </div>
 
@@ -131,14 +124,14 @@
   {/if}
 
   {#if !squared && setupDone === true}
-    <button type="button" tabindex="-1" aria-label="Ridimensiona dall'alto" class="rz rz-n" onmousedown={(e) => startResize('North', e)}></button>
-    <button type="button" tabindex="-1" aria-label="Ridimensiona dal basso" class="rz rz-s" onmousedown={(e) => startResize('South', e)}></button>
-    <button type="button" tabindex="-1" aria-label="Ridimensiona da sinistra" class="rz rz-w" onmousedown={(e) => startResize('West', e)}></button>
-    <button type="button" tabindex="-1" aria-label="Ridimensiona da destra" class="rz rz-e" onmousedown={(e) => startResize('East', e)}></button>
-    <button type="button" tabindex="-1" aria-label="Ridimensiona dall'angolo in alto a sinistra" class="rz rz-nw" onmousedown={(e) => startResize('NorthWest', e)}></button>
-    <button type="button" tabindex="-1" aria-label="Ridimensiona dall'angolo in alto a destra" class="rz rz-ne" onmousedown={(e) => startResize('NorthEast', e)}></button>
-    <button type="button" tabindex="-1" aria-label="Ridimensiona dall'angolo in basso a sinistra" class="rz rz-sw" onmousedown={(e) => startResize('SouthWest', e)}></button>
-    <button type="button" tabindex="-1" aria-label="Ridimensiona dall'angolo in basso a destra" class="rz rz-se" onmousedown={(e) => startResize('SouthEast', e)}></button>
+    <button type="button" tabindex="-1" aria-label="Resize from top" class="rz rz-n" onmousedown={(e) => startResize('North', e)}></button>
+    <button type="button" tabindex="-1" aria-label="Resize from bottom" class="rz rz-s" onmousedown={(e) => startResize('South', e)}></button>
+    <button type="button" tabindex="-1" aria-label="Resize from left" class="rz rz-w" onmousedown={(e) => startResize('West', e)}></button>
+    <button type="button" tabindex="-1" aria-label="Resize from right" class="rz rz-e" onmousedown={(e) => startResize('East', e)}></button>
+    <button type="button" tabindex="-1" aria-label="Resize from top left" class="rz rz-nw" onmousedown={(e) => startResize('NorthWest', e)}></button>
+    <button type="button" tabindex="-1" aria-label="Resize from top right" class="rz rz-ne" onmousedown={(e) => startResize('NorthEast', e)}></button>
+    <button type="button" tabindex="-1" aria-label="Resize from bottom left" class="rz rz-sw" onmousedown={(e) => startResize('SouthWest', e)}></button>
+    <button type="button" tabindex="-1" aria-label="Resize from bottom right" class="rz rz-se" onmousedown={(e) => startResize('SouthEast', e)}></button>
   {/if}
 </div>
 
@@ -153,38 +146,46 @@
   }
 
   .app {
+    --win-radius: 0px;
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
     background: var(--bg-chrome);
-    border-radius: 0;
+    border-radius: 0 0 var(--win-radius) var(--win-radius);
   }
 
   .app.rounded {
-    border-radius: 12px;
+    --win-radius: 12px;
+    --win-edge: 1px;
+  }
+
+  .app.rounded::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 100000;
+    border: 1px solid var(--border-strong);
+    border-top: none;
+    border-radius: 0 0 var(--win-radius) var(--win-radius);
+    pointer-events: none;
+  }
+
+  .app.setup {
+    background: var(--bg-page);
   }
 
   .titlebar {
     display: flex;
     align-items: stretch;
-    height: 40px;
+    height: 38px;
     flex-shrink: 0;
-    background: var(--bg-chrome);
-    border-bottom: 1px solid var(--border);
+    background: transparent;
     user-select: none;
     position: relative;
     z-index: 10001;
-  }
-
-  .tabs {
-    display: flex;
-    align-items: center;
-    align-self: stretch;
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
   }
 
   .drag-region {
@@ -192,17 +193,6 @@
     min-width: 72px;
     align-self: stretch;
     -webkit-app-region: drag;
-  }
-
-  .titlebar .title {
-    padding-left: 12px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  .titlebar.mac .title {
-    padding-left: 0;
   }
 
   .content {

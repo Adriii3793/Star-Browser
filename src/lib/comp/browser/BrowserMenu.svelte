@@ -4,11 +4,11 @@
         onnewtab,
         onhistory,
         ondownloads,
-        oncleardata,
         onprint,
         onfullscreen,
         onsettings,
         zoom = 100,
+        fullscreen = false,
         onzoomin,
         onzoomout,
         onzoomreset
@@ -17,11 +17,11 @@
         onnewtab: () => void;
         onhistory: () => void;
         ondownloads?: () => void;
-        oncleardata: () => void;
         onprint: () => void;
         onfullscreen: () => void;
         onsettings: () => void;
         zoom?: number;
+        fullscreen?: boolean;
         onzoomin?: () => void;
         onzoomout?: () => void;
         onzoomreset?: () => void;
@@ -71,42 +71,35 @@
         <span class="label">Downloads</span>
     </button>
 
-    <button class="item" role="menuitem" onclick={() => run(oncleardata)}>
-        <svg class="ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 7l16 0" />
-            <path d="M10 11l0 6" />
-            <path d="M14 11l0 6" />
-            <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" />
-            <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
-        </svg>
-        <span class="label">Clear Browsing Data</span>
-        <span class="shortcut">Ctrl+Shift+Del</span>
-    </button>
-
     <div class="sep"></div>
 
     <div class="item zoomrow" role="presentation">
-        <svg class="ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 10a7 7 0 1 0 14 0a7 7 0 0 0 -14 0" />
-            <path d="M21 21l-6 -6" />
-        </svg>
         <span class="label">Zoom</span>
         <span class="zoomctl">
             <button class="zbtn" aria-label="Zoom out" onclick={onzoomout} disabled={!onzoomout}>−</button>
             <button class="zval" aria-label="Reset zoom" onclick={onzoomreset} disabled={!onzoomreset}>{zoom}%</button>
             <button class="zbtn" aria-label="Zoom in" onclick={onzoomin} disabled={!onzoomin}>+</button>
-            <button class="zbtn full" aria-label="Full screen" onclick={() => run(onfullscreen)}>⛶</button>
         </span>
     </div>
 
     <button class="item" role="menuitem" onclick={() => run(onfullscreen)}>
-        <svg class="ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 8v-2a2 2 0 0 1 2 -2h2" />
-            <path d="M4 16v2a2 2 0 0 0 2 2h2" />
-            <path d="M16 4h2a2 2 0 0 1 2 2v2" />
-            <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
-        </svg>
-        <span class="label">Full Screen</span>
+        {#if fullscreen}
+            <svg class="ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 3v3a2 2 0 0 1 -2 2h-3" />
+                <path d="M21 8h-3a2 2 0 0 1 -2 -2v-3" />
+                <path d="M16 21v-3a2 2 0 0 1 2 -2h3" />
+                <path d="M3 16h3a2 2 0 0 1 2 2v3" />
+            </svg>
+            <span class="label">Exit Full Screen</span>
+        {:else}
+            <svg class="ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 8v-2a2 2 0 0 1 2 -2h2" />
+                <path d="M4 16v2a2 2 0 0 0 2 2h2" />
+                <path d="M16 4h2a2 2 0 0 1 2 2v2" />
+                <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
+            </svg>
+            <span class="label">Full Screen</span>
+        {/if}
         <span class="shortcut">F11</span>
     </button>
 
@@ -154,7 +147,7 @@
         padding: 6px;
         background: var(--bg-page, #fff);
         border: 1px solid var(--border, rgba(74, 58, 46, 0.08));
-        border-radius: 12px;
+        border-radius: 14px;
         box-shadow: 0 12px 32px var(--shadow, rgba(74, 58, 46, 0.16));
         transform-origin: top center;
         animation: menu-in 0.18s cubic-bezier(0.32, 0.72, 0, 1);

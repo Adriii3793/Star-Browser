@@ -18,7 +18,7 @@
                 aria-checked={setup.data.searchEngine === engine.id}
                 onclick={() => (setup.data.searchEngine = engine.id)}
             >
-                <span class="badge" style="background:{engine.color}">{engine.initial}</span>
+                <img class="logo" src={engine.logo} alt="" onerror={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
                 <span class="name">{engine.name}</span>
                 <span class="radio" class:on={setup.data.searchEngine === engine.id}>
                     {#if setup.data.searchEngine === engine.id}
@@ -61,7 +61,7 @@
         width: min(360px, 100%);
         border-radius: 14px;
         overflow: hidden;
-        box-shadow: 0 8px 28px rgba(74, 58, 46, 0.1);
+        box-shadow: 0 8px 28px var(--shadow);
     }
 
     .row {
@@ -70,7 +70,7 @@
         gap: 12px;
         padding: 14px 16px;
         border: none;
-        border-bottom: 1px solid rgba(74, 58, 46, 0.06);
+        border-bottom: 1px solid var(--border);
         background: var(--bg-page, #fff);
         font-family: inherit;
         text-align: left;
@@ -85,7 +85,7 @@
         background: var(--tab-hover, #fbf6f2);
     }
 
-    .badge {
+    .logo {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -93,9 +93,8 @@
         width: 28px;
         height: 28px;
         border-radius: 8px;
-        color: #fff;
-        font-size: 13px;
-        font-weight: 700;
+        object-fit: contain;
+        background: var(--field, #f7f1ec);
     }
 
     .name {
@@ -113,8 +112,8 @@
         width: 22px;
         height: 22px;
         border-radius: 50%;
-        border: 1.5px solid rgba(74, 58, 46, 0.22);
-        color: #fff;
+        border: 1.5px solid var(--border-strong);
+        color: var(--accent-contrast, #1c1917);
     }
 
     .radio.on {

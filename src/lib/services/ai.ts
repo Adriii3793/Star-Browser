@@ -9,11 +9,6 @@ export interface ChatMessage {
     content: string | ContentPart[];
 }
 
-export interface UsageStatus {
-    used: number;
-    limit: number;
-}
-
 export interface PageContext {
     url: string;
     title: string;
@@ -23,14 +18,14 @@ export interface PageContext {
     truncated: boolean;
 }
 
-export function usageStatus(): Promise<UsageStatus> {
-    return call('usage_status');
-}
-
 export function aiChat(messages: ChatMessage[], model?: string | null): Promise<string> {
     return call('ai_chat', { messages, model: model ?? null });
 }
 
 export function fetchPageContext(url: string): Promise<PageContext> {
     return call('fetch_page_context', { url });
+}
+
+export function readTabPage(tabId: string): Promise<PageContext | null> {
+    return call('read_tab_page', { tabId });
 }

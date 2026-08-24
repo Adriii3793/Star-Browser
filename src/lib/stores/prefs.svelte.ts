@@ -42,7 +42,6 @@ interface HomePrefs {
     skipUngroupedTabs: boolean;
     aiProvider: AiProviderId;
     seenDisclosures: AiProviderId[];
-    voiceLang: string;
 }
 
 class PrefsStore {
@@ -51,7 +50,6 @@ class PrefsStore {
     skipUngroupedTabs = $state(false);
     aiProvider = $state<AiProviderId>(DEFAULT_PROVIDER);
     seenDisclosures = $state<AiProviderId[]>([]);
-    voiceLang = $state('');
 
     #loaded = false;
 
@@ -69,7 +67,6 @@ class PrefsStore {
                     ? (p.aiProvider as AiProviderId)
                     : DEFAULT_PROVIDER;
                 this.seenDisclosures = Array.isArray(p.seenDisclosures) ? p.seenDisclosures : [];
-                this.voiceLang = typeof p.voiceLang === 'string' ? p.voiceLang : '';
             }
         } catch {}
     }
@@ -90,8 +87,7 @@ class PrefsStore {
                 showRecent: this.showRecent,
                 skipUngroupedTabs: this.skipUngroupedTabs,
                 aiProvider: this.aiProvider,
-                seenDisclosures: this.seenDisclosures,
-                voiceLang: this.voiceLang
+                seenDisclosures: this.seenDisclosures
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         } catch {}
@@ -109,11 +105,6 @@ class PrefsStore {
 
     setSkipUngroupedTabs(value: boolean) {
         this.skipUngroupedTabs = value;
-        this.#persist();
-    }
-
-    setVoiceLang(value: string) {
-        this.voiceLang = value;
         this.#persist();
     }
 

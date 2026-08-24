@@ -58,14 +58,6 @@ fn now_millis() -> i64 {
     .map(|elapsed| elapsed.as_millis() as i64)
     .unwrap_or(0)
 }
-#[derive(Serialize)]
-pub struct UsageStatus {
-    pub used: i64,
-    pub limit: i64,
-}
-
-
-
 async fn requests_in_window(state: &AppState) -> Result<i64, AppError> {
     let since = now_millis() - WINDOW_MS;
     let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM usage_log WHERE used_at >= ?1")
@@ -75,110 +67,6 @@ async fn requests_in_window(state: &AppState) -> Result<i64, AppError> {
     Ok(count)
     
 }
-#[tauri::command]
-pub async fn usage_status(state: State<'_, AppState>) -> Result<UsageStatus, AppError> {
-    Ok(UsageStatus {
-        used: requests_in_window(&state).await?,
-        limit: DAILY_LIMIT,
-    }) 
-}
-
-const OMNI_MODEL: &str = MODELS[0];
-
-const TRANSCRIBE_PROMPT: &str = "Transcribe the audio exactly as spoken, in its original language. \
-Return only the transcript with no translation, no commentary, no quotation marks. \
-If the audio contains no intelligible speech, return an empty response.";
-
-#[derive(Serialize)]
-pub struct SttStatus {
-    pub available: bool,
-    pub model: Option<String>,
-    pub reason: Option<String>,
-}
-
-#[tauri::command]
-pub async fn stt_status() -> Result<SttStatus, AppError> {
-    match api_key() {
-        Ok(_) => Ok(SttStatus {
-            available: true,
-            model: Some(OMNI_MODEL.to_string()),
-            reason: None,
-        }),
-        Err(_) => Ok(SttStatus {
-            available: false,
-            model: None,
-            reason: Some("No API key configured, voice input is unavailable".to_string()),
-        }),
-    }
-}
-
-#[tauri::command]
-pub async fn stt_transcribe(
-    state: State<'_, AppState>,
-    audio_base64: String,
-    lang: Option<String>,
-) -> Result<String, AppError> {
-    if audio_base64.trim().is_empty() {
-        return Ok(String::new());
-    }
-
-    let used = requests_in_window(&state).await?;
-    if used >= DAILY_LIMIT {
-        return Err(AppError::RateLimited);
-    }
-
-    let key = api_key()?;
-
-    let mut instruction = TRANSCRIBE_PROMPT.to_string();
-    if let Some(code) = lang.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
-        instruction.push_str(&format!(" The expected language is {code}."));
-    }
-
-    let body = serde_json::json!({
-        "model": OMNI_MODEL,
-        "messages": [{
-            "role": "user",
-            "content": [
-                { "type": "text", "text": instruction },
-                { "type": "input_audio", "input_audio": { "data": audio_base64, "format": "wav" } }
-            ]
-        }]
-    });
-
-    let response = http_client()?
-        .post("https://openrouter.ai/api/v1/chat/completions")
-        .header("Authorization", format!("Bearer {key}"))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| if e.is_timeout() { AppError::AiTimeout } else { AppError::AiRequest })?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(AppError::AiFailed(describe_failure(status, &body)));
-    }
-
-    let raw = response.text().await.map_err(|_| AppError::AiRequest)?;
-    let parsed: ChatResponse = serde_json::from_str(&raw)
-        .map_err(|_| AppError::AiFailed(describe_failure(status, &raw)))?;
-
-    let text = parsed
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| content_to_text(&choice.message.content))
-        .unwrap_or_default();
-
-    sqlx::query("INSERT INTO usage_log (used_at) VALUES (?1)")
-        .bind(now_millis())
-        .execute(&state.db)
-        .await?;
-
-    Ok(text.trim().trim_matches('"').to_string())
-}
-
 #[derive(Serialize)]
 struct ChatRequest <'a> {
     model: &'a str,

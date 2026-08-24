@@ -1,18 +1,19 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { listen } from '@tauri-apps/api/event';
-    import { downloads } from '$lib/stores/downloads.svelte';
+    import { emit, listen } from '@tauri-apps/api/event';
+    import type { DownloadEntry } from '$lib/stores/downloads.svelte';
 
     let { onclose }: { onclose: () => void } = $props();
 
-    downloads.init();
+    let entries = $state<DownloadEntry[]>([]);
 
     onMount(() => {
-        const unlistenStart = listen('download-started', () => setTimeout(() => downloads.reload(), 150));
-        const unlistenFinish = listen('download-finished', () => setTimeout(() => downloads.reload(), 150));
+        emit('overlay-request-downloads', {});
+        const unlistenState = listen<{ entries: DownloadEntry[] }>('overlay-downloads-state', (e) => {
+            entries = e.payload?.entries ?? [];
+        });
         return () => {
-            unlistenStart.then((off) => off());
-            unlistenFinish.then((off) => off());
+            unlistenState.then((off) => off());
         };
     });
 
@@ -31,8 +32,8 @@
     <header>
         <h1>Downloads</h1>
         <div class="head-actions">
-            {#if downloads.entries.length}
-                <button class="ghost" type="button" onclick={() => downloads.clear()}>Clear all</button>
+            {#if entries.length}
+                <button class="ghost" type="button" onclick={() => emit('overlay-downloads-clear', {})}>Clear all</button>
             {/if}
             <button class="close" type="button" aria-label="Close" onclick={onclose}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -42,14 +43,14 @@
 
     <p class="hint">Files are saved to your system Downloads folder.</p>
 
-    {#if downloads.entries.length === 0}
+    {#if entries.length === 0}
         <div class="empty">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 20h14" /></svg>
             <p>No downloads yet</p>
         </div>
     {:else}
         <ul>
-            {#each downloads.entries as entry (entry.id)}
+            {#each entries as entry (entry.id)}
                 <li class="row" class:failed={entry.state === 'failed'}>
                     <span class="icon" class:ok={entry.state === 'complete'} class:bad={entry.state === 'failed'} aria-hidden="true">
                         {#if entry.state === 'complete'}
@@ -67,7 +68,7 @@
                             · {timeLabel(entry.at)}
                         </span>
                     </span>
-                    <button class="remove" type="button" aria-label="Remove from list" onclick={() => downloads.remove(entry.id)}>
+                    <button class="remove" type="button" aria-label="Remove from list" onclick={() => emit('overlay-downloads-remove', { id: entry.id })}>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
                     </button>
                 </li>
@@ -189,8 +190,8 @@
         background: color-mix(in srgb, var(--accent) 16%, transparent);
         color: var(--accent);
     }
-    .icon.ok { color: #27875a; background: rgba(39, 135, 90, .14); }
-    .icon.bad { color: #c14545; background: rgba(193, 69, 69, .13); }
+    .icon.ok { color: var(--success); background: color-mix(in srgb, var(--success) 18%, transparent); }
+    .icon.bad { color: var(--danger); background: color-mix(in srgb, var(--danger) 18%, transparent); }
     .icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
     .meta {

@@ -1,37 +1,79 @@
 <script lang="ts">
-    import { prefs, AI_PROVIDERS, type AiProvider, type AiProviderId } from '$lib/stores/prefs.svelte';
+    import { prefs } from '$lib/stores/prefs.svelte';
     import { emit } from '@tauri-apps/api/event';
     import { PRESET_THEMES, SYSTEM_THEME, theme } from '$lib/stores/theme.svelte';
     import type { Theme } from '$lib/stores/theme.svelte';
     import { SEARCH_ENGINES } from '$lib/stores/setup.svelte';
+    import { AI_PROVIDERS } from '$lib/stores/prefs.svelte';
     let {
         onclose,
         themeId = theme.preference,
-        searchEngine = 'google'
+        searchEngine = 'google',
+        background = null
     }: {
         onclose: () => void;
         themeId?: string;
         searchEngine?: string;
+        background?: string | null;
     } = $props();
 
     const themes = [SYSTEM_THEME, ...PRESET_THEMES];
-    let activeThemeId = $state(theme.preference);
-    let selectedSearchEngine = $state('Google');
-
-    $effect(() => {
-        activeThemeId = themeId;
-        selectedSearchEngine = searchEngine;
-    });
+    let themeOverride = $state<string | null>(null);
+    let engineOverride = $state<string | null>(null);
+    let activeThemeId = $derived(themeOverride ?? themeId);
+    let selectedSearchEngine = $derived(engineOverride ?? searchEngine);
 
     function selectTheme(t: Theme) {
-        activeThemeId = t.id;
+        themeOverride = t.id;
         theme.set(t.id);
         void emit('settings-changed', { theme: t.id });
     }
 
     function selectSearchEngine(id: string) {
-        selectedSearchEngine = id;
+        engineOverride = id;
         void emit('settings-changed', { searchEngine: id });
+    }
+
+    const MAX_BG_EDGE = 1920;
+    let backgroundOverride = $state<string | null | undefined>(undefined);
+    let wallpaper = $derived(backgroundOverride === undefined ? background : backgroundOverride);
+    let bgFileEl = $state<HTMLInputElement>();
+
+    function downscale(source: string): Promise<string> {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const scale = Math.min(1, MAX_BG_EDGE / Math.max(img.width, img.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(img.width * scale);
+                canvas.height = Math.round(img.height * scale);
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return resolve(source);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg', 0.82));
+            };
+            img.onerror = () => resolve(source);
+            img.src = source;
+        });
+    }
+
+    function pickBackground(event: Event) {
+        const input = event.currentTarget as HTMLInputElement;
+        const file = input.files?.[0];
+        input.value = '';
+        if (!file?.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = async () => {
+            const data = await downscale(String(reader.result));
+            backgroundOverride = data;
+            void emit('settings-changed', { background: data });
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function clearBackground() {
+        backgroundOverride = null;
+        void emit('settings-changed', { background: null });
     }
 
     function onkeydown(e: KeyboardEvent) {
@@ -49,27 +91,23 @@
 
     prefs.init();
 
-    let disclosureFor = $state<AiProvider | null>(null);
-
-    function selectProvider(p: AiProvider) {
-        if (prefs.aiProvider === p.id) return;
-        const firstTime = prefs.selectProvider(p.id);
-        if (firstTime) disclosureFor = p;
-        void emit('settings-changed', { aiProvider: p.id });
-    }
-
-    function showDisclosure(p: AiProvider, e: MouseEvent) {
-        e.stopPropagation();
-        disclosureFor = p;
-    }
-
     function toggleUngrouped(enabled: boolean) {
         prefs.setSkipUngroupedTabs(enabled);
         void emit('settings-changed', { skipUngroupedTabs: enabled });
     }
+
+    function toggleFavorites(enabled: boolean) {
+        prefs.setFavorites(enabled);
+        void emit('settings-changed', { showFavorites: enabled });
+    }
+
+    function toggleRecent(enabled: boolean) {
+        prefs.setRecent(enabled);
+        void emit('settings-changed', { showRecent: enabled });
+    }
 </script>
 
-<svelte:window on:keydown={onkeydown} />
+<svelte:window {onkeydown} />
 
 <div
     class="overlay"
@@ -116,7 +154,7 @@
                     type="checkbox"
                     class="switch"
                     checked={prefs.showFavorites}
-                    onchange={(e) => prefs.setFavorites(e.currentTarget.checked)}
+                    onchange={(e) => toggleFavorites(e.currentTarget.checked)}
                 />
             </label>
 
@@ -129,7 +167,7 @@
                     type="checkbox"
                     class="switch"
                     checked={prefs.showRecent}
-                    onchange={(e) => prefs.setRecent(e.currentTarget.checked)}
+                    onchange={(e) => toggleRecent(e.currentTarget.checked)}
                 />
             </label>
         </section>
@@ -142,20 +180,44 @@
             <div class="theme-swatches">
                 {#each themes as t (t.id)}
                     <button
-                        class="theme-swatch"
+                        class="theme-dot"
                         class:active={activeThemeId === t.id}
                         type="button"
-                        style="background:{t.id === 'system' ? 'linear-gradient(135deg, #f8fafc 0 50%, #292524 50% 100%)' : t.bg}"
+                        style="--dot-bg:{t.id === 'system' ? 'linear-gradient(135deg, #f8fafc 0 50%, #292524 50% 100%)' : t.bg}; --dot-accent:{t.accent}"
                         title={t.name}
                         aria-label={t.name}
+                        aria-pressed={activeThemeId === t.id}
                         onclick={() => selectTheme(t)}
                     >
-                        <span class="swatch-dot" style="background:{t.accent}"></span>
+                        <span class="dot-fill"></span>
                         {#if activeThemeId === t.id}
-                            <span class="swatch-check">✓</span>
+                            <span class="dot-ring"></span>
                         {/if}
                     </button>
                 {/each}
+            </div>
+
+            <div class="wallpaper">
+                <div class="wallpaper-preview" class:empty={!wallpaper} aria-hidden="true">
+                    {#if wallpaper}
+                        <img src={wallpaper} alt="" />
+                    {:else}
+                        <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z" /><path d="M4 15l4.5-4.5 3.5 3.5 3-3L20 16" /><circle cx="9" cy="9" r="1.4" /></svg>
+                    {/if}
+                </div>
+                <div class="wallpaper-text">
+                    <span class="rowtitle">Start page background</span>
+                    <span class="rowsub">{wallpaper ? 'A custom image is in use. It stays when you switch themes.' : 'Use a photo behind the start page.'}</span>
+                </div>
+                <div class="wallpaper-actions">
+                    <button type="button" class="wallpaper-btn" onclick={() => bgFileEl?.click()}>
+                        {wallpaper ? 'Replace' : 'Choose'}
+                    </button>
+                    {#if wallpaper}
+                        <button type="button" class="wallpaper-btn subtle" onclick={clearBackground}>Remove</button>
+                    {/if}
+                </div>
+                <input class="hidden-file" type="file" accept="image/*" bind:this={bgFileEl} onchange={pickBackground} />
             </div>
         </section>
 
@@ -173,7 +235,7 @@
                         aria-checked={selectedSearchEngine === engine.id}
                         onclick={() => selectSearchEngine(engine.id)}
                     >
-                        <span class="engine-badge" style="background:{engine.color}">{engine.initial}</span>
+                        <img class="engine-logo" src={engine.logo} alt="" />
                         <span>{engine.name}</span>
                         {#if selectedSearchEngine === engine.id}
                             <svg class="engine-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 7" /></svg>
@@ -184,54 +246,35 @@
         </section>
 
         <section>
-            <h3>AI model</h3>
-            <p class="hint">Used by the star assistant. Both run through OpenRouter.</p>
-
-            <div class="provider-list" role="radiogroup" aria-label="AI model">
-                {#each AI_PROVIDERS as p (p.id)}
+            <h3>Assistant</h3>
+            <p class="hint">{AI_PROVIDERS.length} AI models are available for Star chat - pick the one to use.</p>
+            <div class="assistant-list" role="radiogroup" aria-label="AI provider">
+                {#each AI_PROVIDERS as provider (provider.id)}
                     <button
-                        class="provider-row"
-                        class:active={prefs.aiProvider === p.id}
+                        class="assistant-row"
+                        class:active={prefs.aiProvider === provider.id}
                         type="button"
                         role="radio"
-                        aria-checked={prefs.aiProvider === p.id}
-                        onclick={() => selectProvider(p)}
+                        aria-checked={prefs.aiProvider === provider.id}
+                        onclick={() => {
+                            prefs.aiProvider = provider.id;
+                            prefs.selectProvider(provider.id);
+                            void emit('settings-changed', { aiProvider: provider.id });
+                        }}
                     >
-                        <span class="provider-text">
-                            <span class="provider-name">
-                                {p.name}
-                                <span
-                                    class="info"
-                                    role="button"
-                                    tabindex="0"
-                                    aria-label="Data disclosure for {p.name}"
-                                    title="Data disclosure"
-                                    onclick={(e) => showDisclosure(p, e)}
-                                    onkeydown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            disclosureFor = p;
-                                        }
-                                    }}
-                                >i</span>
-                            </span>
-                            <span class="provider-sub">{p.modalities}</span>
-                        </span>
-                        {#if prefs.aiProvider === p.id}
-                            <svg class="engine-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 7" /></svg>
+                        <div class="assistant-main">
+                            <span class="assistant-name">{provider.name}</span>
+                            <span class="assistant-meta">{provider.vendor} · {provider.modalities}</span>
+                            {#if provider.disclosure}
+                                <span class="assistant-note">{provider.disclosure}</span>
+                            {/if}
+                        </div>
+                        {#if prefs.aiProvider === provider.id}
+                            <svg class="assistant-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 7" /></svg>
                         {/if}
                     </button>
                 {/each}
             </div>
-
-            {#if disclosureFor}
-                <div class="disclosure" role="status">
-                    <strong>{disclosureFor.vendor}</strong>
-                    <span>{disclosureFor.disclosure}</span>
-                    <button type="button" class="disclosure-ok" onclick={() => (disclosureFor = null)}>Got it</button>
-                </div>
-            {/if}
         </section>
 
         <section>
@@ -422,51 +465,39 @@
     .theme-swatches {
         display: flex;
         flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 8px;
+        gap: 14px;
+        margin-top: 10px;
     }
 
-    .theme-swatch {
+    .theme-dot {
         position: relative;
-        width: 48px;
-        height: 48px;
+        width: 34px;
+        height: 34px;
         padding: 0;
-        border: 2px solid var(--border);
-        border-radius: 12px;
-        cursor: pointer;
-        transition: border-color 0.16s ease, transform 0.14s ease, box-shadow 0.14s ease;
-        overflow: hidden;
-    }
-
-    .theme-swatch:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px var(--shadow);
-    }
-
-    .theme-swatch.active {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 2px var(--bg-page), 0 0 0 4px var(--accent);
-    }
-
-    .swatch-dot {
-        position: absolute;
-        bottom: 6px;
-        right: 6px;
-        width: 10px;
-        height: 10px;
+        border: none;
         border-radius: 50%;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        background: transparent;
+        cursor: pointer;
     }
 
-    .swatch-check {
+    .dot-fill {
         position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        font-size: 18px;
-        font-weight: 700;
-        color: #fff;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+        inset: 0;
+        border-radius: 50%;
+        background: var(--dot-bg);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+        transition: transform 0.14s ease;
+    }
+
+    .theme-dot:hover .dot-fill {
+        transform: scale(1.08);
+    }
+
+    .dot-ring {
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        border: 2px solid var(--dot-accent);
         pointer-events: none;
     }
 
@@ -495,74 +526,138 @@
     }
     .engine-row:hover { background: var(--tab-hover); }
     .engine-row.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-    .engine-badge { display: grid; place-items: center; flex: 0 0 auto; width: 21px; height: 21px; border-radius: 6px; color: #fff; font-size: 10px; font-weight: 800; }
+    .engine-logo {
+        flex: 0 0 auto;
+        width: 20px;
+        height: 20px;
+        border-radius: 5px;
+        object-fit: contain;
+        background: var(--bg-page);
+    }
     .engine-check { width: 15px; height: 15px; margin-left: auto; fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 
-    .provider-list { display: flex; flex-direction: column; gap: 8px; }
-    .provider-row {
+    .assistant-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    .assistant-row {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 10px;
         width: 100%;
-        padding: 11px 13px;
+        padding: 10px 12px;
         border: 1px solid var(--border);
         border-radius: 10px;
         background: var(--field);
         color: var(--text);
-        font: inherit;
         text-align: left;
         cursor: pointer;
     }
-    .provider-row:hover { background: var(--tab-hover); }
-    .provider-row.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-    .provider-text { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
-    .provider-name {
+    .assistant-row:hover { background: var(--tab-hover); }
+    .assistant-row.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+    .assistant-main {
         display: flex;
-        align-items: center;
-        gap: 7px;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .assistant-name {
         font-size: 13px;
         font-weight: 600;
         color: var(--text);
     }
-    .provider-sub { font-size: 11.5px; color: var(--text-muted); }
-    .info {
-        display: inline-grid;
-        place-items: center;
-        width: 15px;
-        height: 15px;
-        border-radius: 50%;
-        background: var(--border-strong);
-        color: var(--bg-page);
-        font-size: 10px;
-        font-weight: 700;
-        font-style: italic;
-        cursor: help;
+
+    .assistant-meta {
+        font-size: 11.5px;
+        color: var(--text-muted);
     }
-    .info:hover { background: var(--accent); }
-    .disclosure {
+
+    .assistant-note {
+        font-size: 11px;
+        color: var(--text-muted);
+        opacity: .85;
+    }
+
+    .assistant-check {
+        flex: 0 0 auto;
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 2.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .wallpaper {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-top: 10px;
+        gap: 12px;
+        margin-top: 16px;
         padding: 10px 12px;
+        border: 1px solid var(--border);
         border-radius: 10px;
-        background: var(--field-strong, var(--field));
-        font-size: 12px;
-        color: var(--text);
+        background: var(--field);
     }
-    .disclosure span { flex: 1; min-width: 0; color: var(--text-muted); }
-    .disclosure-ok {
+
+    .wallpaper-preview {
+        display: grid;
+        place-items: center;
         flex: 0 0 auto;
-        padding: 4px 11px;
-        border: 0;
+        width: 56px;
+        height: 38px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--bg-page);
+        color: var(--text-muted);
+    }
+    .wallpaper-preview img { width: 100%; height: 100%; object-fit: cover; }
+    .wallpaper-preview svg {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .wallpaper-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .wallpaper-actions {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 6px;
+    }
+
+    .wallpaper-btn {
+        padding: 7px 12px;
+        border: 1px solid var(--border-strong);
         border-radius: 999px;
-        background: var(--accent);
-        color: var(--accent-contrast);
+        background: var(--bg-page);
+        color: var(--text);
         font: inherit;
-        font-size: 11.5px;
+        font-size: 12px;
         font-weight: 600;
         cursor: pointer;
     }
+    .wallpaper-btn:hover { background: var(--tab-hover); }
+    .wallpaper-btn.subtle { border-color: transparent; background: transparent; color: var(--text-muted); }
+    .wallpaper-btn.subtle:hover { color: var(--danger); background: transparent; }
+
+    .hidden-file { display: none; }
 
     @media (max-width: 440px) {
         .engine-list { grid-template-columns: 1fr; }

@@ -4,7 +4,7 @@ mod error;
 mod state;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri::Emitter;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -12,10 +12,44 @@ use state::AppState;
 
 fn shortcut_bindings() -> Vec<(Shortcut, &'static str)> {
     vec![
-        ("ctrl+shift+t".parse().unwrap(), "new-tab"),        
-        ("ctrl+shift+h".parse().unwrap(), "show-history"),
-        ("ctrl+shift+s".parse().unwrap(), "open-ai-chat"),
+        ("ctrl+shift+t".parse().unwrap(), "newtab"),
+        ("ctrl+shift+h".parse().unwrap(), "history"),
+        ("ctrl+shift+s".parse().unwrap(), "chat"),
     ]
+}
+
+#[cfg(windows)]
+fn strip_system_frame(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
+        DWMWCP_DONOTROUND, DWM_WINDOW_CORNER_PREFERENCE,
+    };
+
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
+
+    let Ok(raw) = window.hwnd() else {
+        return;
+    };
+    let hwnd = HWND(raw.0 as *mut core::ffi::c_void);
+
+    unsafe {
+        let corner: DWM_WINDOW_CORNER_PREFERENCE = DWMWCP_DONOTROUND;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
+        );
+
+        let border = DWMWA_COLOR_NONE;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            &border as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,14 +72,21 @@ pub fn run() {
         let dir = app.path().app_data_dir()?;
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("glow.db");
-    
+
     let pool = tauri::async_runtime::block_on(db::connection::init(&db_path))?;
     app.manage(AppState {
         db: pool,
         views: Mutex::new(HashMap::new()),
+        last_tab_urls: Arc::new(Mutex::new(HashMap::new())),
     });
     app.manage(commands::webview::PermissionRegistry::default());
     commands::webview::grant_main_window_media(app.handle());
+
+    if let Some(win) = app.get_webview_window("main") {
+        #[cfg(windows)]
+        strip_system_frame(&win);
+        let _ = win.show();
+    }
     let handle = app.handle().clone();
     for (shortcut, action) in shortcut_bindings() {
         let action = action.to_string();
@@ -76,12 +117,11 @@ pub fn run() {
         commands::webview::open_menu_webview,
         commands::webview::close_menu_webview,
         commands::webview::open_overlay_webview,
+        commands::webview::warm_overlay_webview,
         commands::webview::close_overlay_webview,
-        commands::ai::usage_status,
         commands::ai::ai_chat,
-        commands::ai::stt_status,
-        commands::ai::stt_transcribe,
         commands::page::fetch_page_context,
+        commands::webview::read_tab_page,
         commands::setup::is_setup_complete,
         commands::setup::save_setup,
         commands::setup::load_setup,
@@ -104,5 +144,5 @@ pub fn run() {
         commands::tabs::load_tab_session,
     ])
     .run(tauri::generate_context!())
-    .expect("Errore Avvio")
+    .expect("failed to start star")
 }

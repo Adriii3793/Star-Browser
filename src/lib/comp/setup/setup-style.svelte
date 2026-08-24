@@ -6,7 +6,6 @@
         SYSTEM_THEME,
         readableText,
         imageLuminance,
-        parseTheme,
         luminance,
         mix,
         theme as themeStore,
@@ -16,9 +15,7 @@
     let { onnext }: { onnext: () => void } = $props();
 
     let bgFileEl = $state<HTMLInputElement>();
-    let themeFileEl = $state<HTMLInputElement>();
     let textColor = $state('#1c1917');
-    let error = $state<string | null>(null);
 
     let themes = $derived.by<Theme[]>(() => {
         const list = [SYSTEM_THEME, ...PRESET_THEMES];
@@ -96,29 +93,6 @@
             image: setup.data.background
         });
     }
-
-    function importTheme(e: Event) {
-        const input = e.target as HTMLInputElement;
-        const file = input.files?.[0];
-        input.value = '';
-        if (!file) return;
-        const r = new FileReader();
-        r.onload = () => {
-            const t = parseTheme(String(r.result));
-            if (!t) {
-                error = 'That theme file is not valid.';
-                return;
-            }
-            error = null;
-            setup.data.customBg = t.bg;
-            setup.data.customSurface = t.surface;
-            setup.data.customAccent = t.accent;
-            setup.data.background = t.image ?? null;
-            setup.data.theme = 'custom';
-            themeStore.set(t);
-        };
-        r.readAsText(file);
-    }
 </script>
 
 <div class="wrap">
@@ -145,7 +119,7 @@
                 class="sw"
                 class:on={setup.data.theme === t.id}
                 type="button"
-                style="background:{t.id === 'system' ? 'linear-gradient(135deg, #f8fafc 0 50%, #292524 50% 100%)' : t.bg}"
+                style="background:{t.id === 'system' ? 'linear-gradient(135deg, #f8fafc 0 50%, #292524 50% 100%)' : t.bg}; --tick:{t.id === 'system' ? '#1c1917' : readableText(t.bg)}"
                 aria-label={t.name}
                 onclick={() => selectTheme(t)}
             >
@@ -176,16 +150,9 @@
         </label>
     </div>
 
-    <button class="link" type="button" onclick={() => themeFileEl?.click()}>Import a theme file…</button>
-
-    {#if error}
-        <p class="err">{error}</p>
-    {/if}
-
     <Button3D label="Continue" onclick={onnext} />
 
     <input type="file" accept="image/*" bind:this={bgFileEl} onchange={pickBackground} style="display:none" />
-    <input type="file" accept=".json" bind:this={themeFileEl} onchange={importTheme} style="display:none" />
 </div>
 
 <style>
@@ -221,7 +188,7 @@
         border-radius: 14px;
         background-size: cover;
         background-position: center;
-        box-shadow: 0 8px 28px rgba(74, 58, 46, 0.14);
+        box-shadow: 0 8px 28px var(--shadow);
         transition: background-color 0.2s ease;
     }
 
@@ -292,7 +259,7 @@
         inset: 0;
         display: grid;
         place-items: center;
-        color: var(--accent);
+        color: var(--tick, var(--accent));
         font-size: 15px;
         font-weight: 700;
     }
@@ -313,37 +280,34 @@
     .colorpick {
         display: flex;
         align-items: center;
-        gap: 7px;
+        gap: 8px;
+        padding: 7px 12px 7px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--field);
         font-size: 12px;
+        font-weight: 500;
         color: var(--text-soft);
         cursor: pointer;
+        transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .colorpick:hover {
+        border-color: var(--border-strong);
+        background: var(--tab-hover, var(--field));
     }
 
     .colorpick input {
-        width: 30px;
-        height: 30px;
+        width: 26px;
+        height: 26px;
         padding: 0;
-        border: 2px solid var(--border);
-        border-radius: 9px;
-        background: none;
-        cursor: pointer;
-    }
-
-    .link {
         border: none;
+        border-radius: 50%;
         background: none;
-        color: var(--accent);
-        font: inherit;
-        font-size: 12px;
         cursor: pointer;
-        text-decoration: underline;
     }
-
-    .err {
-        margin: 0;
-        font-size: 12px;
-        color: #c0392b;
-    }
+    .colorpick input::-webkit-color-swatch-wrapper { padding: 0; }
+    .colorpick input::-webkit-color-swatch { border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 50%; }
 
     @media (prefers-reduced-motion: reduce) {
         .preview {

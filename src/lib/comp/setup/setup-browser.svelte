@@ -88,14 +88,12 @@
         place-items: center;
         width: 52px;
         height: 52px;
-        border-radius: 14px;
-        background: var(--accent, #80A4D4);
-        color: #fff;
+        color: var(--accent, #80A4D4);
     }
 
     .mark svg {
-        width: 26px;
-        height: 26px;
+        width: 40px;
+        height: 40px;
         fill: currentColor;
     }
 

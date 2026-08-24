@@ -6,33 +6,16 @@
 	import { fetchPageContext } from '$lib/services/ai';
 	import { renderMarkdown } from '$lib/services/markdown';
 	import { prefs, AI_PROVIDERS, type AiProvider } from '$lib/stores/prefs.svelte';
-	import {
-		sttStatus,
-		VoiceRecorder,
-		speak,
-		stopSpeaking,
-		ttsSupported,
-		type SttStatus
-	} from '$lib/services/voice';
 	import { cubicOut } from 'svelte/easing';
 
 	type ChatEntry = { id: string; title: string; messages: ChatMessage[]; timestamp: number };
-	type DrawerView = 'menu' | 'memory' | 'connect';
+	type DrawerView = 'menu' | 'memory';
 	type Attachment = { type: 'image' | 'video' | 'text'; data: string; name: string };
-	type Connector = { id: string; name: string; hint: string };
-	type ConvoState = 'listening' | 'muted' | 'transcribing' | 'thinking' | 'speaking';
-
-	const CONNECTORS: Connector[] = [
-		{ id: 'history', name: 'Browsing history', hint: 'Let star search pages you visited' },
-		{ id: 'downloads', name: 'Downloads', hint: 'Read the names of your recent files' },
-		{ id: 'favorites', name: 'Favourites', hint: 'Use your saved sites as context' }
-	];
 
 	const PANEL_MIN = 300;
 	const PANEL_MAX = 720;
 	const WIDTH_KEY = 'ai_panel_width';
 	const HISTORY_KEY = 'ai_chat_history';
-	const CONNECT_KEY = 'ai_connectors';
 
 	let { username = 'there', pageUrl = null, onclose }: {
 		username?: string;
@@ -55,7 +38,6 @@
 	let drawerOpen = $state(false);
 	let drawerView = $state<DrawerView>('menu');
 	let modelOpen = $state(false);
-	let connectors = $state<Record<string, boolean>>(loadConnectors());
 
 	let chatHistory = $state<ChatEntry[]>(loadHistoryFromStorage());
 	let activeChatId = $state<string | null>(null);
@@ -67,37 +49,11 @@
 	let editingIndex = $state<number | null>(null);
 	let editDraft = $state('');
 
-	let stt = $state<SttStatus>({ available: false, model: null, reason: null });
-	let dictating = $state(false);
-	let transcribing = $state(false);
-	let level = $state(0);
-	let dictateBase = '';
-	const recorder = new VoiceRecorder();
-
-	let convoActive = $state(false);
-	let convoState = $state<ConvoState>('listening');
-	let convoHeard = $state('');
-	let convoNote = $state<string | null>(null);
-
 	const activeProvider = $derived<AiProvider>(prefs.provider);
-	const usedPct = $derived(ai.limit > 0 ? Math.min(100, (ai.used / ai.limit) * 100) : 0);
-	const nearLimit = $derived(ai.limit > 0 && ai.used / ai.limit >= 0.8);
 	const isMac = $derived(
 		typeof navigator !== 'undefined' && /mac/i.test(navigator.platform ?? navigator.userAgent)
 	);
 	const newChatKey = $derived(isMac ? '⌘P' : 'Ctrl P');
-	const voiceLang = $derived(prefs.voiceLang.trim() || null);
-	const convoLabel = $derived(
-		convoState === 'muted'
-			? 'Muted'
-			: convoState === 'transcribing'
-				? 'Transcribing'
-				: convoState === 'thinking'
-					? 'Thinking'
-					: convoState === 'speaking'
-						? 'Speaking'
-						: 'Listening'
-	);
 
 	const prompts = ['Summarise this page', 'Learn more about this topic'];
 
@@ -139,17 +95,6 @@
 	});
 
 	$effect(() => {
-		sttStatus()
-			.then((s) => (stt = s))
-			.catch(() => (stt = { available: false, model: null, reason: 'Voice engine unavailable' }));
-
-		return () => {
-			recorder.cancel();
-			stopSpeaking();
-		};
-	});
-
-	$effect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
 				e.preventDefault();
@@ -158,7 +103,6 @@
 			if (e.key === 'Escape') {
 				if (menuFor) menuFor = null;
 				else if (modelOpen) modelOpen = false;
-				else if (convoActive) endConversation();
 				else if (drawerOpen) closeDrawer();
 			}
 		};
@@ -177,26 +121,11 @@
 		return Number.isFinite(v) && v >= PANEL_MIN && v <= PANEL_MAX ? v : 340;
 	}
 
-	function loadConnectors(): Record<string, boolean> {
-		try {
-			const raw = localStorage.getItem(CONNECT_KEY);
-			return raw ? JSON.parse(raw) : {};
-		} catch {
-			return {};
-		}
-	}
-
 	function pickProvider(p: AiProvider) {
 		modelOpen = false;
 		if (prefs.aiProvider === p.id) return;
 		const firstTime = prefs.selectProvider(p.id);
 		if (firstTime) showToast(`${p.vendor}: ${p.disclosure}`);
-	}
-
-	function toggleConnector(id: string) {
-		const next = { ...connectors, [id]: !connectors[id] };
-		connectors = next;
-		localStorage.setItem(CONNECT_KEY, JSON.stringify(next));
 	}
 
 	function startResize(e: PointerEvent) {
@@ -359,7 +288,6 @@
 	}
 
 	function newConversation() {
-		if (convoActive) endConversation();
 		ai.reset();
 		activeChatId = null;
 		attachments = [];
@@ -416,46 +344,6 @@
 		}
 	}
 
-	function micError(e: unknown): string {
-		const raw = String(e).replace(/^Error:\s*/, '');
-		if (/NotAllowed|Permission/i.test(raw)) return 'Microphone access was denied';
-		if (/NotFound|Devices/i.test(raw)) return 'No microphone found';
-		return raw || 'Could not start the microphone';
-	}
-
-	async function toggleDictation() {
-		if (convoActive || transcribing) return;
-
-		if (dictating) {
-			dictating = false;
-			transcribing = true;
-			level = 0;
-			try {
-				const heard = await recorder.stop(voiceLang);
-				if (heard.trim()) draft = dictateBase ? `${dictateBase} ${heard}`.trim() : heard.trim();
-				else showToast('Nothing was picked up');
-			} catch (e) {
-				showToast(micError(e));
-			} finally {
-				transcribing = false;
-			}
-			return;
-		}
-
-		if (!stt.available) {
-			showToast(stt.reason ?? 'Voice input is not set up yet');
-			return;
-		}
-
-		dictateBase = draft.trim();
-		try {
-			await recorder.start({ onLevel: (rms) => (level = rms) });
-			dictating = true;
-		} catch (e) {
-			showToast(micError(e));
-		}
-	}
-
 	function lastAssistantText(): string {
 		for (let i = ai.messages.length - 1; i >= 0; i--) {
 			if (ai.messages[i].role === 'assistant') return messageText(ai.messages[i]);
@@ -463,103 +351,9 @@
 		return '';
 	}
 
-	async function startConversation() {
-		if (!stt.available) {
-			showToast(stt.reason ?? 'Voice input is not set up yet');
-			return;
-		}
-		if (dictating) {
-			dictating = false;
-			await recorder.stop(voiceLang).catch(() => '');
-		}
-		convoActive = true;
-		convoHeard = '';
-		convoNote = ttsSupported() ? null : 'No speech voices installed, replies stay text only';
-		await resumeListening();
-	}
-
-	async function resumeListening() {
-		if (!convoActive || convoState === 'muted') return;
-		convoState = 'listening';
-		convoHeard = '';
-		try {
-			await recorder.start({
-				autoStop: true,
-				silenceMs: 1200,
-				onLevel: (rms) => (level = rms),
-				onEndOfSpeech: () => void takeConvoTurn()
-			});
-		} catch (e) {
-			convoNote = micError(e);
-			convoState = 'muted';
-		}
-	}
-
-	async function takeConvoTurn() {
-		if (!convoActive || convoState !== 'listening') return;
-
-		convoState = 'transcribing';
-		level = 0;
-
-		let spoken = '';
-		try {
-			spoken = (await recorder.stop(voiceLang)).trim();
-		} catch (e) {
-			convoNote = micError(e);
-		}
-
-		if (!convoActive) return;
-		if (!spoken) {
-			await resumeListening();
-			return;
-		}
-
-		convoState = 'thinking';
-		convoHeard = spoken;
-		await ai.send(spoken, await currentPage());
-		saveCurrentChat();
-
-		if (!convoActive) return;
-
-		const reply = lastAssistantText();
-		if (reply && ttsSupported()) {
-			convoState = 'speaking';
-			await speak(reply, { lang: voiceLang });
-		}
-
-		if (!convoActive) return;
-		await resumeListening();
-	}
-
-	async function toggleMute() {
-		if (convoState === 'muted') {
-			await resumeListening();
-			return;
-		}
-		convoState = 'muted';
-		convoHeard = '';
-		level = 0;
-		recorder.cancel();
-	}
-
-	function endConversation() {
-		convoActive = false;
-		convoState = 'listening';
-		convoHeard = '';
-		convoNote = null;
-		level = 0;
-		stopSpeaking();
-		recorder.cancel();
-	}
-
 	async function submit() {
 		const text = draft.trim();
 		if (!text && attachments.length === 0) return;
-
-		if (dictating) {
-			dictating = false;
-			recorder.cancel();
-		}
 
 		const files = attachments;
 		draft = '';
@@ -693,16 +487,6 @@
 	async function retry(index: number) {
 		await ai.regenerate(index, await currentPage());
 		saveCurrentChat();
-	}
-
-	function readAloud(message: ChatMessage) {
-		const text = messageText(message);
-		if (!text) return;
-		if (!ttsSupported()) {
-			showToast('No speech voices installed');
-			return;
-		}
-		void speak(text, { lang: voiceLang });
 	}
 
 	function startEdit(index: number, message: ChatMessage) {
@@ -872,13 +656,6 @@
 								</button>
 
 								{#if message.role === 'assistant'}
-									<button type="button" class="act" title="Read aloud" aria-label="Read aloud" onclick={() => readAloud(message)}>
-										<svg viewBox="0 0 24 24" aria-hidden="true">
-											<path d="M11 5L6 9H3v6h3l5 4V5z" />
-											<path d="M16 9a4 4 0 0 1 0 6" />
-										</svg>
-									</button>
-
 									<button
 										type="button"
 										class="act"
@@ -979,106 +756,26 @@
 		</div>
 	{/if}
 
-	{#if convoActive}
-		<div class="convo" transition:fade>
-			<div class="convo-status">
-				<span class="dot {convoState}"></span>
-				<span class="convo-label">{convoLabel}</span>
-				<span class="convo-heard">{convoHeard}</span>
-			</div>
-			{#if convoNote}
-				<p class="convo-note">{convoNote}</p>
-			{/if}
-			<div class="convo-actions">
-				<button
-					class="convo-btn"
-					class:on={convoState === 'muted'}
-					type="button"
-					aria-pressed={convoState === 'muted'}
-					onclick={toggleMute}
-				>
-					{#if convoState === 'muted'}
-						<svg viewBox="0 0 24 24" aria-hidden="true">
-							<path d="M3 3l18 18" />
-							<path d="M9 5a3 3 0 0 1 6 0v5m0 4a3 3 0 0 1 -6 0V9" />
-							<path d="M5 11a7 7 0 0 0 10.5 6M19 11a7 7 0 0 1 -.5 2.6" />
-							<path d="M12 18v3" />
-						</svg>
-						<span>Unmute</span>
-					{:else}
-						<svg viewBox="0 0 24 24" aria-hidden="true">
-							<rect x="9" y="3" width="6" height="11" rx="3" />
-							<path d="M5 11a7 7 0 0 0 14 0" />
-							<path d="M12 18v3" />
-						</svg>
-						<span>Mute</span>
-					{/if}
-				</button>
-				<button class="convo-btn end" type="button" onclick={endConversation}>
-					<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-					<span>End</span>
-				</button>
-			</div>
-		</div>
-	{:else}
-		<div class="composer" class:drag-over={dragActive}>
-			<button class="tool" type="button" aria-label="Attach file" title="Attach file" onclick={() => fileInputEl?.click()}>
-				<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-			</button>
+	<div class="composer" class:drag-over={dragActive}>
+		<button class="tool" type="button" aria-label="Attach file" title="Attach file" onclick={() => fileInputEl?.click()}>
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+		</button>
 
-			<textarea
-				rows="1"
-				placeholder={transcribing ? 'Transcribing…' : dictating ? 'Listening…' : 'Ask star'}
-				bind:value={draft}
-				onkeydown={handleKeydown}
-				onpaste={handlePaste}
-			></textarea>
+		<textarea
+			rows="1"
+			placeholder="Ask star"
+			bind:value={draft}
+			onkeydown={handleKeydown}
+			onpaste={handlePaste}
+		></textarea>
 
-			<button
-				class="tool mic"
-				class:listening={dictating}
-				class:busy={transcribing}
-				type="button"
-				disabled={transcribing}
-				aria-pressed={dictating}
-				style={dictating ? `--level:${Math.min(1, level * 9)}` : ''}
-				aria-label={dictating ? 'Stop recording' : 'Voice input'}
-				title={dictating ? 'Stop recording' : 'Voice input'}
-				onclick={toggleDictation}
-			>
+		{#if draft.trim() || attachments.length > 0}
+			<button class="tool send" type="button" aria-label="Send" onclick={submit}>
 				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<rect x="9" y="3" width="6" height="11" rx="3" />
-					<path d="M5 11a7 7 0 0 0 14 0" />
-					<path d="M12 18v3" />
+					<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
 				</svg>
-			</button>
-
-			{#if draft.trim() || attachments.length > 0}
-				<button class="tool send" type="button" aria-label="Send" onclick={submit}>
-					<svg viewBox="0 0 24 24" aria-hidden="true">
-						<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-					</svg>
-				</button>
-			{/if}
-		</div>
-	{/if}
-
-	<div class="meta">
-		{#if convoActive}
-			<span class="limit">Conversation active</span>
-		{:else}
-			<button class="convo-start" type="button" onclick={startConversation}>
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<path d="M21 12a8 8 0 0 1 -8 8H4l2.3 -2.3A8 8 0 1 1 21 12z" />
-					<path d="M8.5 11h.01M12 11h.01M15.5 11h.01" />
-				</svg>
-				Conversation
 			</button>
 		{/if}
-		<span class="limit" class:warn={nearLimit} title="Requests used in the last 24 hours">
-			<span class="bar"><span class="fill" style="width:{usedPct}%"></span></span>
-			{ai.used}/{ai.limit}
-		</span>
 	</div>
 
 	<input
@@ -1116,7 +813,7 @@
 					<button class="back" type="button" aria-label="Back" onclick={() => (drawerView = 'menu')}>
 						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6l6 6" /></svg>
 					</button>
-					<h2>{drawerView === 'memory' ? 'AI memory' : 'App connect'}</h2>
+					<h2>AI memory</h2>
 				{/if}
 				<button class="icon small" type="button" aria-label="Close menu" onclick={closeDrawer}>
 					<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -1138,14 +835,6 @@
 						</svg>
 						<span>AI memory</span>
 						<span class="badge">{memory.items.length}</span>
-					</button>
-
-					<button class="pill" type="button" onclick={() => (drawerView = 'connect')}>
-						<svg viewBox="0 0 24 24" aria-hidden="true">
-							<path d="M10 14a3.5 3.5 0 0 0 5 0l4 -4a3.5 3.5 0 0 0 -5 -5l-.5 .5" />
-							<path d="M14 10a3.5 3.5 0 0 0 -5 0l-4 4a3.5 3.5 0 0 0 5 5l.5 -.5" />
-						</svg>
-						<span>App connect</span>
 					</button>
 				</div>
 
@@ -1217,7 +906,7 @@
 						</div>
 					{/if}
 				</div>
-			{:else if drawerView === 'memory'}
+			{:else}
 				<div class="drawer-tools">
 					<button class="chip small" type="button" onclick={() => memoryFileEl?.click()}>Import</button>
 					<button class="chip small" type="button" onclick={exportMemory}>Export</button>
@@ -1248,18 +937,6 @@
 					<button class="tool send" type="button" aria-label="Save memory" onclick={addMemory}>
 						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
 					</button>
-				</div>
-			{:else}
-				<div class="drawer-scroll">
-					{#each CONNECTORS as c (c.id)}
-						<button class="connect-item" type="button" onclick={() => toggleConnector(c.id)}>
-							<span class="connect-text">
-								<span class="connect-name">{c.name}</span>
-								<span class="connect-hint">{c.hint}</span>
-							</span>
-							<span class="switch" class:on={connectors[c.id]}><span class="knob"></span></span>
-						</button>
-					{/each}
 				</div>
 			{/if}
 		</div>
@@ -1329,7 +1006,7 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 8px;
-		padding: 8px;
+		padding: 16px;
 	}
 	.group { display: flex; align-items: center; gap: 4px; min-width: 0; }
 
@@ -1753,21 +1430,23 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		margin: 10px 10px 0;
+		margin: 10px;
 		padding: 5px 6px;
 		border: 1px solid var(--border);
 		border-radius: 999px;
 		background: var(--field);
 		transition: border-color 0.2s ease, background-color 0.2s ease;
+		overflow: hidden;
 	}
 	.composer:focus-within { border-color: var(--accent, #80a4d4); }
 	.composer.drag-over { border-color: var(--accent, #80a4d4); background: var(--field-strong, var(--field)); }
 	textarea {
 		flex: 1;
 		min-width: 0;
-		max-height: 120px;
+		max-height: 140px;
 		padding: 8px 2px;
 		border: 0;
+		border-radius: 999px;
 		background: transparent;
 		color: var(--text, #4a3a2e);
 		font: inherit;
@@ -1805,141 +1484,7 @@
 	}
 	.tool.send { background: var(--accent, #80a4d4); color: var(--accent-contrast); }
 	.tool.send:hover { background: var(--accent-hover, #6b8fc4); }
-	.tool.mic.listening {
-		background: var(--accent, #80a4d4);
-		color: var(--accent-contrast);
-		box-shadow: 0 0 0 calc(var(--level, 0) * 5px) color-mix(in srgb, var(--accent, #80a4d4) 35%, transparent);
-		transition: box-shadow 90ms linear;
-	}
-	.tool.mic.busy { opacity: 0.55; cursor: default; animation: pulse 1.1s ease-in-out infinite; }
 	.tool:disabled { cursor: default; }
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.55; }
-	}
-
-	.convo {
-		display: flex;
-		flex-direction: column;
-		gap: 9px;
-		margin: 10px 10px 0;
-		padding: 12px 14px;
-		border: 1px solid var(--accent, #80a4d4);
-		border-radius: 16px;
-		background: var(--field);
-	}
-	.convo-status { display: flex; align-items: center; gap: 8px; min-width: 0; }
-	.dot {
-		flex: 0 0 auto;
-		width: 9px;
-		height: 9px;
-		border-radius: 50%;
-		background: var(--accent, #80a4d4);
-	}
-	.dot.listening { animation: pulse 1.2s ease-in-out infinite; }
-	.dot.muted { background: var(--text-muted, #ac8064); }
-	.dot.transcribing { background: var(--accent-hover, #6b8fc4); animation: pulse 0.9s ease-in-out infinite; }
-	.dot.thinking { background: var(--text-soft, #8a6b57); animation: pulse 0.8s ease-in-out infinite; }
-	.dot.speaking { background: #1e7a3c; animation: pulse 1s ease-in-out infinite; }
-	.convo-label { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--text, #4a3a2e); }
-	.convo-heard {
-		flex: 1;
-		min-width: 0;
-		font-size: 12px;
-		color: var(--text-muted, #ac8064);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	.convo-note { margin: 0; font-size: 11px; color: var(--text-muted, #ac8064); }
-	.convo-actions { display: flex; gap: 6px; }
-	.convo-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		flex: 1;
-		padding: 8px 10px;
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		background: var(--bg-page, #fff);
-		color: var(--text, #4a3a2e);
-		font: inherit;
-		font-size: 12px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background-color 150ms ease-in-out;
-	}
-	.convo-btn:hover { background: var(--hover); }
-	.convo-btn.on { background: var(--accent, #80a4d4); color: var(--accent-contrast); border-color: transparent; }
-	.convo-btn.end { color: #c0392b; }
-	.convo-btn svg {
-		width: 15px;
-		height: 15px;
-		flex: 0 0 auto;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.8;
-		stroke-linecap: round;
-		stroke-linejoin: round;
-	}
-
-	.meta {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		padding: 8px 14px 10px;
-	}
-	.convo-start {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 5px 11px;
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		background: transparent;
-		color: var(--text-soft, #8a6b57);
-		font: inherit;
-		font-size: 11.5px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background-color 150ms ease-in-out, color 150ms ease-in-out;
-	}
-	.convo-start:hover { background: var(--field, #f7f1ec); color: var(--text, #4a3a2e); }
-	.convo-start svg {
-		width: 14px;
-		height: 14px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.8;
-		stroke-linecap: round;
-		stroke-linejoin: round;
-	}
-	.limit {
-		display: inline-flex;
-		align-items: center;
-		gap: 7px;
-		font-size: 11px;
-		color: var(--text-muted, #ac8064);
-		font-variant-numeric: tabular-nums;
-	}
-	.limit.warn { color: #c0392b; }
-	.bar {
-		display: block;
-		width: 54px;
-		height: 4px;
-		border-radius: 999px;
-		background: var(--hover);
-		overflow: hidden;
-	}
-	.fill {
-		display: block;
-		height: 100%;
-		border-radius: 999px;
-		background: currentColor;
-		transition: width 0.3s ease;
-	}
 
 	.scrim { position: absolute; inset: 0; z-index: 20; border: 0; padding: 0; background: var(--overlay); }
 	.drawer {
@@ -2153,44 +1698,6 @@
 	}
 	.mem-add input:focus { outline: none; border-color: var(--accent, #80a4d4); }
 
-	.connect-item {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 10px 12px;
-		border: 1px solid var(--border);
-		border-radius: 12px;
-		background: var(--bg-page, #fff);
-		font: inherit;
-		text-align: left;
-		cursor: pointer;
-		transition: background-color 150ms ease-in-out;
-	}
-	.connect-item:hover { background: var(--field, #f7f1ec); }
-	.connect-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-	.connect-name { font-size: 12.5px; font-weight: 500; color: var(--text, #4a3a2e); }
-	.connect-hint { font-size: 11px; color: var(--text-muted, #ac8064); }
-	.switch {
-		flex: 0 0 auto;
-		display: block;
-		width: 34px;
-		height: 19px;
-		padding: 2px;
-		border-radius: 999px;
-		background: var(--border-strong);
-		transition: background-color 160ms ease-in-out;
-	}
-	.switch.on { background: var(--accent, #80a4d4); }
-	.knob {
-		display: block;
-		width: 15px;
-		height: 15px;
-		border-radius: 50%;
-		background: var(--bg-page, #fff);
-		transition: transform 160ms ease-in-out;
-	}
-	.switch.on .knob { transform: translateX(15px); }
-
 	.toast {
 		margin: 8px 8px 0;
 		padding: 8px 12px;
@@ -2210,12 +1717,6 @@
 		.composer,
 		.pill,
 		.actions,
-		.act,
-		.switch,
-		.knob,
-		.convo-btn,
-		.convo-start { transition: none; }
-		.tool.mic.listening,
-		.dot { animation: none; }
+		.act { transition: none; }
 	}
 </style>
