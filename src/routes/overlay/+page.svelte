@@ -11,10 +11,21 @@
 
     type Kind = 'settings' | 'history' | 'downloads' | 'media' | 'profile' | 'tabmenu' | 'groupedit' | null;
     let kind = $state<Kind>(null);
-    let settings = $state<{ themeId: string; searchEngine: string; background: string | null }>({
+    interface SettingsState {
+        themeId: string;
+        searchEngine: string;
+        background: string | null;
+        customBg: string | null;
+        customSurface: string | null;
+        customAccent: string | null;
+    }
+    let settings = $state<SettingsState>({
         themeId: 'light',
         searchEngine: 'google',
-        background: null
+        background: null,
+        customBg: null,
+        customSurface: null,
+        customAccent: null
     });
 
     function close() {
@@ -28,13 +39,26 @@
     }
 
     onMount(() => {
-        const unlistenShow = listen<{ kind: Kind; themeId?: string; searchEngine?: string; background?: string | null }>('overlay-show', (e) => {
+        const unlistenshow = listen<{
+            kind: Kind;
+            themeId?: string;
+            searchEngine?: string;
+            background?: string | null;
+            customBg?: string | null;
+            customSurface?: string | null;
+            customAccent?: string | null;
+        }>('overlay-show', (e) => {
             kind = e.payload?.kind ?? null;
             if (!e.payload) return;
             settings = {
                 themeId: e.payload.themeId ?? settings.themeId,
                 searchEngine: e.payload.searchEngine ?? settings.searchEngine,
-                background: 'background' in e.payload ? e.payload.background ?? null : settings.background
+                background: 'background' in e.payload ? e.payload.background ?? null : settings.background,
+                customBg: 'customBg' in e.payload ? e.payload.customBg ?? null : settings.customBg,
+                customSurface:
+                    'customSurface' in e.payload ? e.payload.customSurface ?? null : settings.customSurface,
+                customAccent:
+                    'customAccent' in e.payload ? e.payload.customAccent ?? null : settings.customAccent
             };
         });
         const unlistenTheme = listen<Record<string, string>>('overlay-theme', (e) => {
@@ -44,22 +68,30 @@
             }
         });
 
-        Promise.all([unlistenShow, unlistenTheme]).then(() => emit('overlay-ready', {}));
+        Promise.all([unlistenshow, unlistenTheme]).then(() => emit('overlay-ready', {}));
         return () => {
-            unlistenShow.then((off) => off());
+            unlistenshow.then((off) => off());
             unlistenTheme.then((off) => off());
         };
     });
 </script>
 
 {#if kind === 'settings'}
-    <Settings onclose={close} themeId={settings.themeId} searchEngine={settings.searchEngine} background={settings.background} />
+    <Settings
+        onclose={close}
+        themeId={settings.themeId}
+        searchEngine={settings.searchEngine}
+        background={settings.background}
+        customBg={settings.customBg}
+        customSurface={settings.customSurface}
+        customAccent={settings.customAccent}
+    />
 {:else if kind === 'history'}
     <History onclose={close} onopen={openUrl} />
 {:else if kind === 'downloads'}
     <Downloads onclose={close} />
 {:else if kind === 'media'}
-    <MiniPlayer
+    <MiniPlayer 
         onclose={close}
         ongoto={(tabId) => {
             close();
@@ -81,11 +113,11 @@
     <TabMenu
         onclose={close}
         onmute={(id) => emit('overlay-tab-action', { action: 'mute', tabId: id })}
-        onduplicate={(id) => emit('overlay-tab-action', { action: 'duplicate', tabId: id })}
-        oncloseothers={(id) => emit('overlay-tab-action', { action: 'closeothers', tabId: id })}
+        onduplicate={(id) => emit('overlay-tab-action', { action: 'duplicate', tabId: id})}
+        oncloseothers={(id) => emit('overlay-tab-action', { action: 'closeothers', tabId: id})}
         oncreategroup={(id, x, y) => emit('overlay-tab-action', { action: 'creategroup', tabId: id, x, y })}
         onaddtogroup={(id, groupId) => emit('overlay-tab-action', { action: 'addtogroup', tabId: id, groupId })}
-        onremovefromgroup={(id) => emit('overlay-tab-action', { action: 'removefromgroup', tabId: id })}
+        onremovefromgroup={(id) => emit('overlay-tab-action', { action: 'removefromgroup', tabId: id, })}
     />
 {:else if kind === 'groupedit'}
     <GroupEdit onclose={close} onsave={(payload) => emit('overlay-group-save', payload)} />
@@ -136,6 +168,7 @@
     :global(textarea) {
         -webkit-user-select: text;
         user-select: text;
+        cursor: auto;
     }
 
     :global(.overlay),

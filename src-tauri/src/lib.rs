@@ -11,7 +11,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use state::AppState;
 
 fn shortcut_bindings() -> Vec<(Shortcut, &'static str)> {
-    vec![
+    vec! [
         ("ctrl+shift+t".parse().unwrap(), "newtab"),
         ("ctrl+shift+h".parse().unwrap(), "history"),
         ("ctrl+shift+s".parse().unwrap(), "chat"),
@@ -54,10 +54,11 @@ fn strip_system_frame(window: &tauri::WebviewWindow) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _ = dotenvy::from_filename("../.env");
+    let _ = dotenvy::from_filename("../env");
     let _ = dotenvy::dotenv();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -90,9 +91,8 @@ pub fn run() {
     let handle = app.handle().clone();
     for (shortcut, action) in shortcut_bindings() {
         let action = action.to_string();
-        let shortcut_for_handler = shortcut.clone();
         let handle_for_event = handle.clone();
-        let _ = app.global_shortcut().on_shortcut(shortcut_for_handler, move |_app, _shortcut, event| {
+        let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
             if event.state != ShortcutState::Pressed {
                 return;
             }
@@ -106,7 +106,6 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
         commands::history::record_visit,
         commands::history::recent_history,
-        commands::history::search_history,
         commands::history::clear_history,
         commands::webview::open_tab_webview,
         commands::webview::navigate_tab_webview,
@@ -144,5 +143,5 @@ pub fn run() {
         commands::tabs::load_tab_session,
     ])
     .run(tauri::generate_context!())
-    .expect("failed to start star")
+    .expect("failed to start star");
 }

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "star",
+  "productName": "Star",
   "version": "0.1.0",
   "identifier": "com.studio.star",
   "build": {
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "star",
+        "title": "Star",
         "width": 1280,
         "height": 800,
         "resizable": true,
@@ -22,7 +22,7 @@
         "minHeight": 600,
         "decorations": false,
         "transparent": true,
-        "shadow": true,
+        "shadow": false,
         "dragDropEnabled": false,
         "visible": false
       }
@@ -38,7 +38,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "publisher": "Star Development Team",
+    "publisher": "Star Studio",
     "copyright": "\u00a9 2026 Star Development Team",
     "category": "Productivity",
     "shortDescription": "Star \u2014 a minimalist AI browser",

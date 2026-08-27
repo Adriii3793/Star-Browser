@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { platform as osPlatform } from '@tauri-apps/plugin-os';
   import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -84,16 +84,20 @@
       os = 'windows';
     }
 
+    await windowChrome.init();
+
     try {
       setupDone = await invoke('is_setup_complete');
     } catch (e) {
       console.warn('is_setup_complete is not available', e);
-      setupDone = true;
+      setupDone = true
     }
     await setup.load();
     applySavedTheme();
     if (setupDone === false) await enterSetupWindowMode();
-  });
+  })
+
+  onDestroy(() => windowChrome.destroy());
 </script>
 
 <div
@@ -154,7 +158,7 @@
     width: 100vw;
     overflow: hidden;
     background: var(--bg-chrome);
-    border-radius: 0 0 var(--win-radius) var(--win-radius);
+    border-radius: var(--win-radius);
   }
 
   .app.rounded {
@@ -168,8 +172,7 @@
     inset: 0;
     z-index: 100000;
     border: 1px solid var(--border-strong);
-    border-top: none;
-    border-radius: 0 0 var(--win-radius) var(--win-radius);
+    border-radius: var(--win-radius);
     pointer-events: none;
   }
 

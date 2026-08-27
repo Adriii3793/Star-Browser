@@ -194,6 +194,7 @@
 
 	onDestroy(() => {
 		observer?.disconnect();
+		windowChrome.destroy();
 	});
 </script>
 

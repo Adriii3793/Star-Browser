@@ -10,11 +10,17 @@
     let themeName = $derived(theme?.name ?? 'Custom');
     let surface = $derived(theme?.surface ?? setup.data.customSurface ?? '#ffffff');
     let initial = $derived((setup.data.name.trim()[0] ?? '?').toUpperCase());
+
+    let brokenLogos = $state<string[]>([]);
+    let logoOk = $derived(!brokenLogos.includes(engine.id));
+    function marklogoBroken() {
+        if (!brokenLogos.includes(engine.id)) brokenLogos = [...brokenLogos, engine.id];
+    }
 </script>
 
 <div class="wrap">
     <header class="head">
-        <h1>You're all set</h1>
+        <h1>You're all set!</h1>
         <p class="sub">Here's your setup. Change anything before you dive in.</p>
     </header>
 
@@ -24,15 +30,22 @@
                 <span class="tag">{themeName}</span>
                 <button class="change" type="button" onclick={() => setup.goto('style')}>Change</button>
             </div>
+
             <div
                 class="preview-body"
                 style="background:{setup.data.background
                     ? `url(${setup.data.background}) center/cover`
                     : surface}"
             >
-                <p class="greet">Good afternoon, {setup.data.name || 'there'}</p>
+                <p class="greet">Good Afternoon, {setup.data.name || 'there'}</p>
                 <div class="searchbar">
-                    <span class="badge sm" style="background:{engine.color}">{engine.initial}</span>
+                    <span class="badge sm" class:lettered={!logoOk} style={logoOk ? '' : `background:${engine.color}`}>
+                        {#if logoOk}
+                            <img src={engine.logo} alt="" onerror={marklogoBroken} />
+                            {:else}
+                                {engine.initial}
+                        {/if}
+                    </span>
                     <span class="ph">Search {engine.name}</span>
                 </div>
             </div>
@@ -40,7 +53,13 @@
 
         <div class="side">
             <section class="row-card" style="--stagger:60ms">
-                <span class="badge" style="background:{engine.color}">{engine.initial}</span>
+                <span class="badge" class:lettered={!logoOk} style={logoOk ? '' : `background:${engine.color}`}>
+                    {#if logoOk}
+                        <img src={engine.logo} alt="" onerror={marklogoBroken} />
+                    {:else}
+                        {engine.initial}
+                    {/if}
+                </span>
                 <span class="meta">
                     <span class="label">Search engine</span>
                     <span class="value">{engine.name}</span>
@@ -66,7 +85,7 @@
     </div>
 
     <div class="cta" style="--stagger:180ms">
-        <ButtonArrow label={busy ? 'Saving…' : 'Explore'} disabled={busy} onclick={onfinish} />
+        <ButtonArrow label={busy ? 'Saving...' : 'Explore'} disabled={busy} onclick={onfinish} />
     </div>
 </div>
 
@@ -128,7 +147,7 @@
         flex-direction: column;
         border-radius: 16px;
         overflow: hidden;
-        background: var(--bg-page, #fff);
+        background: var(--bg-page, #ffffff);
         border: 1px solid var(--border);
         box-shadow: 0 8px 24px var(--shadow);
     }
@@ -223,10 +242,23 @@
         font-weight: 700;
         overflow: hidden;
     }
-
+    
     .badge {
         border-radius: 12px;
         font-size: 16px;
+        background: var(--field, #f7f1ec);
+        padding: 6px;
+    }
+
+    .badge img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 4px;
+    }
+
+    .badge.lettered {
+        padding: 0;
     }
 
     .badge.sm {
@@ -234,6 +266,16 @@
         height: 20px;
         border-radius: 6px;
         font-size: 10px;
+        padding: 3px;
+        background: var(--field, #f7f1ec);
+    }
+
+    .badge.sm.lettered {
+        padding: 0;
+    }
+
+    .badge.sm img {
+        border-radius: 2px;
     }
 
     .avatar {
@@ -278,12 +320,12 @@
 
     .change {
         flex: 0 0 auto;
-        align-self: center;
+        align-self:center;
         min-height: 32px;
         padding: 8px;
         border: none;
         background: none;
-        color: var(--accent, #80A4D4);
+        color:var(--accent, #80A4D4);
         font: inherit;
         font-size: 13px;
         font-weight: 600;
@@ -295,7 +337,6 @@
     .change:hover {
         background: color-mix(in srgb, var(--accent) 14%, transparent);
     }
-
     .change:focus-visible {
         outline: 2px solid var(--accent, #80A4D4);
         outline-offset: 2px;

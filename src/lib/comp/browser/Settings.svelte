@@ -1,37 +1,103 @@
 <script lang="ts">
     import { prefs } from '$lib/stores/prefs.svelte';
     import { emit } from '@tauri-apps/api/event';
-    import { PRESET_THEMES, SYSTEM_THEME, theme } from '$lib/stores/theme.svelte';
+    import {
+        PRESET_THEMES,
+        SYSTEM_THEME,
+        theme,
+        applyThemeVars,
+        luminance,
+        mix
+    }  from '$lib/stores/theme.svelte';
     import type { Theme } from '$lib/stores/theme.svelte';
     import { SEARCH_ENGINES } from '$lib/stores/setup.svelte';
     import { AI_PROVIDERS } from '$lib/stores/prefs.svelte';
+    import FavoriteDialog from './FavoriteDialog.svelte';
+    import { backInOut } from 'svelte/easing';
     let {
         onclose,
         themeId = theme.preference,
         searchEngine = 'google',
-        background = null
+        background = null,
+        customBg = null,
+        customSurface = null,
+        customAccent = null
     }: {
-        onclose: () => void;
+        onclose: ()=> void;
         themeId?: string;
         searchEngine?: string;
         background?: string | null;
+        customBg?: string | null;
+        customSurface?: string | null;
+        customAccent?: string | null;
     } = $props();
 
-    const themes = [SYSTEM_THEME, ...PRESET_THEMES];
+    const DEFAULT_CUSTOM_BG = '#faf7f7';
+    const DEFAULT_CUSTOM_ACCENT = '#80a4d4';
+    const HEX = /^#[0-9a-fA-F]{6}$/;
+
+    function surfaceFor(bg: string): string {
+        return mix(bg, '#ffffff', luminance(bg) < 0.5 ? 0.07 : 0.6);
+    }
+
+    let customOverride = $state<{bg: string; surface: string; accent: string } | null>(null);
+    let custom = $derived(
+        customOverride ?? {
+            bg: customBg ?? DEFAULT_CUSTOM_BG,
+            surface: customSurface ?? surfaceFor(customBg ?? DEFAULT_CUSTOM_BG),
+            accent: customAccent ?? DEFAULT_CUSTOM_ACCENT
+        }
+    );
+
+    let customTheme = $derived<Theme>({
+        id: 'custom',
+        name: 'Custom',
+        bg: custom.bg,
+        surface: custom.surface,
+        accent: custom.accent,
+        image: background
+    });
+    
+    let themes = $derived<Theme[]>([SYSTEM_THEME, ...PRESET_THEMES, customTheme]);
+
     let themeOverride = $state<string | null>(null);
     let engineOverride = $state<string | null>(null);
     let activeThemeId = $derived(themeOverride ?? themeId);
     let selectedSearchEngine = $derived(engineOverride ?? searchEngine);
 
     function selectTheme(t: Theme) {
+        if (t.id === 'custom') {
+            applyCustom(custom.bg, custom.accent);
+            return;
+        }
         themeOverride = t.id;
         theme.set(t.id);
         void emit('settings-changed', { theme: t.id });
     }
 
+    function applyCustom(bg: string, accent: string) {
+        const surface = surfaceFor(bg);
+        customOverride = { bg, surface, accent };
+        themeOverride = 'custom';
+        applyThemeVars({id: 'custom', name: 'Custom', bg, surface, accent, image: background });
+        void emit('settings-changed', {
+            theme: 'custom',
+            customBg: bg,
+            customSurface: surface,
+            customAccent: accent
+        });
+    }
+
+    function applyHex(value: string, which: 'bg' | 'accent') {
+        const next = value.startsWith('#') ? value : `#${value}`;
+        if (!HEX.test(next)) return;
+        if (which === 'bg') applyCustom(next, custom.accent);
+        else applyCustom(custom.bg, next);
+    }
+
     function selectSearchEngine(id: string) {
         engineOverride = id;
-        void emit('settings-changed', { searchEngine: id });
+        void emit('settings-changed', {searchEngine: id});
     }
 
     const MAX_BG_EDGE = 1920;
@@ -43,12 +109,12 @@
         return new Promise((resolve) => {
             const img = new Image();
             img.onload = () => {
-                const scale = Math.min(1, MAX_BG_EDGE / Math.max(img.width, img.height));
+                const scale = Math.min(1,MAX_BG_EDGE / Math.max(img.width, img.height));
                 const canvas = document.createElement('canvas');
                 canvas.width = Math.round(img.width * scale);
                 canvas.height = Math.round(img.height * scale);
                 const ctx = canvas.getContext('2d');
-                if (!ctx) return resolve(source);
+                if(!ctx) return resolve(source);
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 resolve(canvas.toDataURL('image/jpeg', 0.82));
             };
@@ -66,14 +132,14 @@
         reader.onload = async () => {
             const data = await downscale(String(reader.result));
             backgroundOverride = data;
-            void emit('settings-changed', { background: data });
+            void emit('settings-changed', { background : data }); 
         };
         reader.readAsDataURL(file);
     }
 
     function clearBackground() {
         backgroundOverride = null;
-        void emit('settings-changed', { background: null });
+        void emit('settings-changed', { background : null });
     }
 
     function onkeydown(e: KeyboardEvent) {
@@ -95,12 +161,10 @@
         prefs.setSkipUngroupedTabs(enabled);
         void emit('settings-changed', { skipUngroupedTabs: enabled });
     }
-
     function toggleFavorites(enabled: boolean) {
         prefs.setFavorites(enabled);
         void emit('settings-changed', { showFavorites: enabled });
     }
-
     function toggleRecent(enabled: boolean) {
         prefs.setRecent(enabled);
         void emit('settings-changed', { showRecent: enabled });
@@ -112,13 +176,13 @@
 <div
     class="overlay"
     role="button"
-    tabindex="0"
+    tabindex="-1"
     aria-label="Close settings"
     onclick={(e) => {
         if (e.target === e.currentTarget) onclose();
     }}
     onkeydown={(e) => {
-        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+        if ((e.key === 'Enter' || e.key === ' ')&& e.target === e.currentTarget) {
             e.preventDefault();
             onclose();
         }
@@ -147,8 +211,8 @@
 
             <label class="row">
                 <span class="rowtext">
-                    <span class="rowtitle">Show Favorites</span>
-                    <span class="rowsub">Quick access tiles at the top of the start page.</span>
+                    <span class="rowtitle">Show Favourites</span>
+                    <span class="rowsub">Quick access titles at the top of the start page.</span>
                 </span>
                 <input
                     type="checkbox"
@@ -171,11 +235,10 @@
                 />
             </label>
         </section>
-        
 
         <section>
             <h3>Theme</h3>
-            <p class="hint">Pick a theme for the browser chrome. System follows Windows automatically.</p>
+            <p class="hint">Pick a theme for the browser chrome. System follows your OS settings.</p>
 
             <div class="theme-swatches">
                 {#each themes as t (t.id)}
@@ -196,6 +259,55 @@
                     </button>
                 {/each}
             </div>
+
+            <div class="customrow">
+                <div class="colorfield">
+                    <span class="colorlabel">Custom colour</span>
+                    <div class="colorpick">
+                        <input
+                            class="swatch"
+                            type="color"
+                            aria-label="custom base colour"
+                            value={custom.bg}
+                            oninput={(e) => applyCustom(e.currentTarget.value, custom.accent)}
+                        />
+                        <input
+                            class="hex"
+                            type="text"
+                            spellcheck="false"
+                            autocomplete="off"
+                            maxlength="7"
+                            aria-label="Custom base colour hex code"
+                            value={custom.bg}
+                            oninput={(e) => applyHex(e.currentTarget.value, 'bg')}
+                        />
+                    </div>
+                </div>
+
+                <div class="colorfield">
+                    <span class="colorlabel">Accent</span>
+                    <div class="colorpick">
+                        <input
+                            class="swatch"
+                            type="color"
+                            aria-label="Accent colour"
+                            value={custom.accent}
+                            oninput={(e) => applyCustom(custom.bg, e.currentTarget.value)}
+                        />
+                        <input
+                            class="hex"
+                            type="text"
+                            spellcheck="false"
+                            autocomplete="off"
+                            maxlength="7"
+                            aria-label="Accent colour hex code"
+                            value={custom.accent}
+                            oninput={(e) => applyHex(e.currentTarget.value, 'accent')}
+                        />
+                    </div>
+                </div>
+            </div>
+            <p class="hint subtle">The accent colour drives buttons, switchers and selection marks.</p>
 
             <div class="wallpaper">
                 <div class="wallpaper-preview" class:empty={!wallpaper} aria-hidden="true">
@@ -222,11 +334,11 @@
         </section>
 
         <section>
-            <h3>Search engine</h3>
-            <p class="hint">Used by the address bar for text that is not a web address.</p>
+            <h3>Search Engine</h3>
+            <p class="hint">Used by the address bar for the text that is not a web address.</p>
 
             <div class="engine-list" role="radiogroup" aria-label="Search engine">
-                {#each SEARCH_ENGINES as engine (engine.id)}
+                {#each SEARCH_ENGINES  as engine (engine.id)}
                     <button
                         class="engine-row"
                         class:active={selectedSearchEngine === engine.id}
@@ -239,12 +351,12 @@
                         <span>{engine.name}</span>
                         {#if selectedSearchEngine === engine.id}
                             <svg class="engine-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 7" /></svg>
-                        {/if}
+                         {/if}
                     </button>
                 {/each}
             </div>
         </section>
-
+        
         <section>
             <h3>Assistant</h3>
             <p class="hint">{AI_PROVIDERS.length} AI models are available for Star chat - pick the one to use.</p>
@@ -263,7 +375,7 @@
                         }}
                     >
                         <div class="assistant-main">
-                            <span class="assistant-name">{provider.name}</span>
+                             <span class="assistant-name">{provider.name}</span>
                             <span class="assistant-meta">{provider.vendor} · {provider.modalities}</span>
                             {#if provider.disclosure}
                                 <span class="assistant-note">{provider.disclosure}</span>
@@ -283,7 +395,7 @@
             <label class="row">
                 <span class="rowtext">
                     <span class="rowtitle">Don't save ungrouped tabs</span>
-                    <span class="rowsub">Only tabs inside a group are restored on next launch.</span>
+                    <span class="rowsub">Only tabs inside a group are on the next launch.</span>
                 </span>
                 <input
                     type="checkbox"
@@ -300,7 +412,7 @@
             <label class="row">
                 <span class="rowtext">
                     <span class="rowtitle">Block ads</span>
-                    <span class="rowsub">Stops requests to known advertising networks. Reload open tabs to apply.</span>
+                    <span class="rowsub">Stops request to know advertising networks. Reload open tabs to apply.</span>
                 </span>
                 <input
                     type="checkbox"
@@ -313,7 +425,6 @@
         </div>
     </div>
 </div>
-
 
 <style>
     .overlay {
@@ -401,7 +512,6 @@
         border-radius: 10px;
         cursor: pointer;
     }
-
 
     .rowtext {
         display: flex;
@@ -499,6 +609,74 @@
         border-radius: 50%;
         border: 2px solid var(--dot-accent);
         pointer-events: none;
+    }
+
+    .customrow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+    }
+
+    .colorfield {
+        display : flex;
+        flex-direction: column;
+        gap: 6px;
+        flex: 1 1 150px;
+        min-width: 0;
+    }
+
+    .colorlabel {
+        font-size: 11.5px;
+        color: var(--text-muted);
+    }
+
+    .colorpick {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px 6px 6px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--field);
+        transition: border-color 0.15s ease;
+    }
+
+    .colorpick:focus-within {
+        border-color: var(--accent);
+    }
+
+    .swatch {
+        flex: 0 0 auto;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: none;
+        cursor: pointer;
+    }
+    .swatch::-webkit-color-swatch-wrapper { padding: 0; }
+    .swatch::-webkit-color-swatch { border: 1px solid var(--border-strong); border-radius: 50%; }
+
+    .hex {
+        min-width: 0;
+        flex: 1;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        outline: none;
+    }
+
+    .hint.subtle {
+        margin: 8px 0 0;
+        font-size: 11.5px;
     }
 
     .engine-list {
@@ -608,7 +786,7 @@
     .wallpaper-preview {
         display: grid;
         place-items: center;
-        flex: 0 0 auto;
+        flex: 0 0  auto;
         width: 56px;
         height: 38px;
         overflow: hidden;

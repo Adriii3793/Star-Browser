@@ -370,6 +370,7 @@ pub async fn open_tab_webview(
     let last_urls = state.last_tab_urls.clone();    let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
         .zoom_hotkeys_enabled(false)
         .initialization_script_for_all_frames(SHORTCUT_FORWARD_SCRIPT)
+        .initialization_script_for_all_frames(MEDIA_BRIDGE_SCRIPT)
         .initialization_script(CONTEXT_MENU_SCRIPT)
         .initialization_script(OFFLINE_SCRIPT);
     if cosmetic_enabled() {
@@ -759,15 +760,65 @@ pub async fn tab_print(state: State<'_, AppState>, tab_id: String) -> Result<(),
     Ok(())
 }
 
-const MEDIA_TOGGLE_SCRIPT: &str = r#"(function () {
-  var els = Array.prototype.slice.call(document.querySelectorAll('video,audio'));
-  var playing = els.filter(function (m) { return !m.paused; });
-  if (playing.length) {
-    playing.forEach(function (m) { m.pause(); });
-  } else if (els.length) {
-    els[0].play().catch(function () {});
-  }
+const MEDIA_BRIDGE_SCRIPT: &str = r#"(function () {
+    if (window.__starMedia) return;
+    window.__starMedia = true;
+
+    function medinaIn(root) {
+        var out = Array.prototype.slice.call(root.querySelectorAll('video,audio'));
+        if (out.length) return out;
+        var all = root.quesrySelectorAll('*');
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].shadowRoot) {
+                var nested = mediaIn(all[i].shadowRoot);
+                if (nested.length) out = out.contact(nested);
+            }
+        }
+        return out;
+    }
+
+    function sideButton(action) {
+        var el = document.querySelector(
+            '[data-testid="control-button-playpause"],[data-testid="control-button-pause"],[data-testid="control-button-play"],button.ytp-play-button'
+        );
+        if (!el) return false;
+        var label = ((el.getAttribute('aria-label') || el.getAttribute('title') || '') + '').tolowerCase();
+        var showPause = label.indexOf('pause') !== -1 || label.indexOf('pausa') !== -1;
+        if (action === 'pause' ? showPause : !showPause) el.click();
+        return true;
+    }
+
+    function apply(action) {
+        var els = mediaIn(document);
+        for (var i = 0; i < els.length; i++) {
+            var m = els[i];
+            if (!m.currentSrc && !m.src && !m.src && !m.srcObject) continue;
+            if (action === 'pause') {
+                if (!m.paused) m.pause();
+            } else if (m.paused) {
+                var p = m.play();
+                if (p && p.catch) p.catch(function () {});
+            }
+        }
+    }
+
+    window.addEventListener('message', function (e) {
+        var d = e.data;
+        if (!d || d.__star !== 'media') return;
+        if (d.action !== 'play' && d.action !== 'pause') return;
+        if (window.top === window && siteButton(d.action)) return;
+        apply(d.action);
+        var f = window.frames;
+        for (var i = 0; i < f.length; i++) {
+            try { f[i].postMessage(d, '*'); } catch (err) {}
+        }
+    });
 })();"#;
+
+fn media_broadcast(action: &str) -> String {
+    format!("(function(){{window.postMessage({{__star:'media',action:'{action}'}},'*');}})();")
+}
+
 
 pub fn grant_main_window_media(app: &AppHandle) {
     #[cfg(windows)]
@@ -789,10 +840,15 @@ pub async fn set_adblock(enabled: bool) -> Result<(), AppError> {
 }
 
 #[tauri::command]
-pub async fn tab_media_toggle(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
+pub async fn tab_media_toggle(
+    state: State<'_, AppState>,
+    tab_id: String,
+    playing: bool,
+) -> Result<(), AppError> {
     let label = label_for(&tab_id);
+    let script = media_broadcast(if playing { "pause" } else { "play" });
     if let Some(webview) = state.views.lock().unwrap().get(&label) {
-        webview.eval(MEDIA_TOGGLE_SCRIPT)?;
+        webview.eval(script.as_str())?;
     }
     Ok(())
 }
