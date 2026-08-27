@@ -1,5 +1,6 @@
 <script lang="ts">
     import Button3D from '../ui/Button3D.svelte';
+    import StepShell from './StepShell.svelte';
     import { setup } from '$lib/stores/setup.svelte';
     import {
         PRESET_THEMES,
@@ -35,7 +36,7 @@
     let active = $derived(
         setup.data.theme === 'system'
             ? themeStore.current
-            : themes.find((t) => t.id === setup.data.theme) ?? themes[1]
+            : (themes.find((t) => t.id === setup.data.theme) ?? themes[1])
     );
     let engine = $derived(setup.engine);
 
@@ -95,10 +96,7 @@
     }
 </script>
 
-<div class="wrap">
-    <h1>Style your browser</h1>
-    <p class="sub">Pick a look. Fine-tune everything later.</p>
-
+<StepShell title="Style your browser" subtitle="Pick a look. Fine-tune everything later." width={380}>
     <div
         class="preview"
         style="background-color:{active.surface};
@@ -113,21 +111,44 @@
     </div>
 
     <p class="section">THEME</p>
+
     <div class="swatches">
         {#each themes as t (t.id)}
+            {@const on = setup.data.theme === t.id}
             <button
                 class="sw"
-                class:on={setup.data.theme === t.id}
+                class:on
+                class:system={t.id === 'system'}
                 type="button"
-                style="background:{t.id === 'system' ? 'linear-gradient(135deg, #f8fafc 0 50%, #292524 50% 100%)' : t.bg}; --tick:{t.id === 'system' ? '#1c1917' : readableText(t.bg)}"
+                style={t.id === 'system'
+                    ? ''
+                    : `background:${t.bg}; --tick:${readableText(t.bg)}`}
+                title={t.name}
                 aria-label={t.name}
+                aria-pressed={on}
                 onclick={() => selectTheme(t)}
             >
-                {#if setup.data.theme === t.id}<span class="tick">✓</span>{/if}
+                {#if t.id === 'system'}
+                    <svg class="auto-mark" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="7.6" />
+                        <path class="half" d="M12 4.4a7.6 7.6 0 0 1 0 15.2z" />
+                    </svg>
+                {:else if on}
+                    <svg class="tick" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 13l4 4L19 7" />
+                    </svg>
+                {/if}
             </button>
         {/each}
-        <button class="sw add" type="button" aria-label="Upload background" onclick={() => bgFileEl?.click()}>
-            +
+
+        <button
+            class="sw add"
+            type="button"
+            title="Upload a background image"
+            aria-label="Upload a background image"
+            onclick={() => bgFileEl?.click()}
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>
     </div>
 
@@ -136,54 +157,38 @@
             <input
                 type="color"
                 value={setup.data.customBg ?? '#faf7f7'}
-                oninput={(e) => applyCustomColors(e.currentTarget.value, setup.data.customAccent ?? '#80A4D4')}
+                oninput={(e) =>
+                    applyCustomColors(e.currentTarget.value, setup.data.customAccent ?? '#80A4D4')}
             />
-            <span>Custom color</span>
+            <span>Custom colour</span>
         </label>
         <label class="colorpick">
             <input
                 type="color"
                 value={setup.data.customAccent ?? '#80A4D4'}
-                oninput={(e) => applyCustomColors(setup.data.customBg ?? '#faf7f7', e.currentTarget.value)}
+                oninput={(e) =>
+                    applyCustomColors(setup.data.customBg ?? '#faf7f7', e.currentTarget.value)}
             />
             <span>Accent</span>
         </label>
     </div>
 
-    <Button3D label="Continue" onclick={onnext} />
+    <input type="file" accept="image/*" bind:this={bgFileEl} onchange={pickBackground} hidden />
 
-    <input type="file" accept="image/*" bind:this={bgFileEl} onchange={pickBackground} style="display:none" />
-</div>
+    {#snippet footer()}
+        <Button3D label="Continue" onclick={onnext} />
+    {/snippet}
+</StepShell>
 
 <style>
-    .wrap {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-    }
-
-    h1 {
-        margin: 0;
-        font-size: 26px;
-        font-weight: 600;
-        color: var(--text);
-    }
-
-    .sub {
-        margin: 0 0 6px;
-        font-size: 13px;
-        color: var(--text-muted);
-    }
-
     .preview {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 14px;
-        width: min(380px, 100%);
-        height: 190px;
+        width: 100%;
+        height: 178px;
         padding: 20px;
         border-radius: 14px;
         background-size: cover;
@@ -229,8 +234,9 @@
     }
 
     .section {
-        margin: 6px 0 0;
+        margin: 4px 0 0;
         font-size: 11px;
+        font-weight: 600;
         letter-spacing: 0.06em;
         color: var(--text-muted);
     }
@@ -242,34 +248,88 @@
 
     .sw {
         position: relative;
+        display: grid;
+        place-items: center;
         width: 46px;
         height: 46px;
         padding: 0;
         border-radius: 12px;
-        border: 2px solid transparent;
+        border: 1px solid var(--border);
         cursor: pointer;
+        transition:
+            border-color 0.15s ease,
+            transform 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    .sw:hover {
+        transform: translateY(-2px);
     }
 
     .sw.on {
         border-color: var(--accent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+
+    .sw:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
     }
 
     .tick {
-        position: absolute;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        color: var(--tick, var(--accent));
-        font-size: 15px;
-        font-weight: 700;
+        width: 17px;
+        height: 17px;
+        fill: none;
+        stroke: var(--tick, currentColor);
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .sw.system {
+        background: var(--field);
+        color: var(--text-soft);
+    }
+
+    .sw.system.on {
+        color: var(--accent);
+    }
+
+    .auto-mark {
+        width: 22px;
+        height: 22px;
+    }
+
+    .auto-mark circle {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+    }
+
+    .auto-mark .half {
+        fill: currentColor;
+        stroke: none;
     }
 
     .sw.add {
-        display: grid;
-        place-items: center;
         background: var(--field);
         color: var(--text-muted);
-        font-size: 20px;
+        border-style: dashed;
+        border-color: var(--border-strong);
+    }
+
+    .sw.add svg {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+    }
+
+    .sw.add:hover {
+        color: var(--text);
+        border-color: var(--accent);
     }
 
     .customrow {
@@ -289,7 +349,9 @@
         font-weight: 500;
         color: var(--text-soft);
         cursor: pointer;
-        transition: border-color 0.15s ease, background-color 0.15s ease;
+        transition:
+            border-color 0.15s ease,
+            background-color 0.15s ease;
     }
 
     .colorpick:hover {
@@ -306,12 +368,22 @@
         background: none;
         cursor: pointer;
     }
-    .colorpick input::-webkit-color-swatch-wrapper { padding: 0; }
-    .colorpick input::-webkit-color-swatch { border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 50%; }
+    .colorpick input::-webkit-color-swatch-wrapper {
+        padding: 0;
+    }
+    .colorpick input::-webkit-color-swatch {
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        border-radius: 50%;
+    }
 
     @media (prefers-reduced-motion: reduce) {
-        .preview {
+        .preview,
+        .sw,
+        .colorpick {
             transition: none;
+        }
+        .sw:hover {
+            transform: none;
         }
     }
 </style>

@@ -1,9 +1,12 @@
 [package]
 name = "star"
 version = "0.1.0"
-description = "A Tauri App"
+description = "A minimalist AI browser"
 authors = ["Star Development Team"]
 edition = "2021"
+license = "MIT"
+homepage = "https://github.com/Adriii3793/Project-2k26"
+repository = "https://github.com/Adriii3793/Project-2k26"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,7 +26,6 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-window-state = "2"
-tauri-plugin-global-shortcut = "2"
 tauri-plugin-os = "2.3.2"
 sqlx = { version = "0.8", features =  ["runtime-tokio", "sqlite", "migrate"] }
 thiserror = "2"

@@ -1,9 +1,10 @@
 <script lang="ts">
+	import Favicon from '../ui/Favicon.svelte';
 	let {
 		title,
 		index,
 		active = false,
-		favicon = '',
+		url = '',
 		muted = false,
 		audible = false,
 		closable = true,
@@ -20,7 +21,7 @@
 		title: string;
 		index: number;
 		active?: boolean;
-		favicon?: string;
+		url?: string;
 		muted?: boolean;
 		audible?: boolean;
 		closable?: boolean;
@@ -35,8 +36,6 @@
 		onpointerdown?: (e: PointerEvent) => void;
 	} = $props();
 
-	let iconFailed = $state(false);
-	$effect(() => { void favicon; iconFailed = false; });
 
 	function press(e: PointerEvent) {
 		if (e.target instanceof Element && e.target.closest('[data-close], [data-audio]')) return;
@@ -77,16 +76,7 @@
 	onpointerdown={press}
 	onkeydown={keydown}
 >
-	<span class="icon">
-		{#if favicon && !iconFailed}
-			<img src={favicon} alt="" onerror={() => (iconFailed = true)} />
-		{:else}
-			<svg viewBox="0 0 24 24" aria-hidden="true">
-				<circle cx="12" cy="12" r="9" />
-				<path d="M3.6 9h16.8M3.6 15h16.8M11.5 3a17 17 0 0 0 0 18M12.5 3a17 17 0 0 1 0 18" />
-			</svg>
-		{/if}
-	</span>
+	<span class="icon"><Favicon {url} size={15} /></span>
 
 	{#if muted || audible}
 		<button
@@ -131,16 +121,21 @@
 
 <style>
 	.tab {
+		--tab-height: 34px;
+		--tab-basis: 210px;
+		--tab-max: 320px;
+		--tab-min: 58px;
+
 		position: relative;
 		z-index: 1;
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		flex: 1 1 210px;
+		flex: 1 1 var(--tab-basis);
 		width: auto;
-		min-width: 58px;
-		max-width: 320px;
-		height: 34px;
+		min-width: var(--tab-min);
+		max-width: var(--tab-max);
+		height: var(--tab-height);
 		padding: 0 8px 0 10px;
 		border: 0;
 		border-radius: 9px;
@@ -154,19 +149,12 @@
 		transition:
 			background-color 150ms ease,
 			color 150ms ease,
-			height 150ms cubic-bezier(.32, .72, 0, 1),
 			box-shadow 150ms ease;
 		animation: tab-in 160ms cubic-bezier(.32, .72, 0, 1);
 	}
 
 	@keyframes tab-in {
 		from { opacity: 0; transform: scale(.94); }
-	}
-
-	.tab.in-group {
-		flex-basis: 200px;
-		min-width: 54px;
-		max-width: 290px;
 	}
 
 	.tab:not(.active):hover {
@@ -176,12 +164,9 @@
 
 	.tab.active {
 		z-index: 2;
-		height: 38px;
-		max-width: 400px;
 		background: var(--tab-active);
 		color: var(--text);
 		font-weight: 600;
-		border-radius: 10px;
 		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 5px 14px var(--shadow);
 	}
 
@@ -216,26 +201,9 @@
 	.icon {
 		display: flex;
 		flex: 0 0 auto;
-		width: 15px;
-		height: 15px;
 	}
-	.icon img {
-		width: 100%;
-		height: 100%;
-		border-radius: 4px;
-		object-fit: contain;
-	}
-	.icon svg {
-		width: 100%;
-		height: 100%;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.75;
-		stroke-linecap: round;
-		opacity: 0.55;
-	}
-	.tab.active .icon svg {
-		opacity: 0.75;
+	.tab.active .icon {
+		opacity: 1;
 	}
 
 	.audio {

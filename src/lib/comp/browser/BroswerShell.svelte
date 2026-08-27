@@ -10,6 +10,7 @@
     import { downloads } from '$lib/stores/downloads.svelte';
     import {SvelteSet} from 'svelte/reactivity';
     import FavoriteDialog from './FavoriteDialog.svelte';
+    import Favicon from '../ui/Favicon.svelte';
     import { prefs } from '$lib/stores/prefs.svelte';
     import { favorites } from '$lib/stores/favorites.svelte';
     import type { Favorite } from '$lib/data/favorites';
@@ -49,7 +50,8 @@
     import { setup } from '$lib/stores/setup.svelte';
     import { imageLuminance, PRESET_THEMES, theme, themeVars } from '$lib/stores/theme.svelte';
     import { loadTabSession, saveTabSession, type TabSession } from '$lib/services/tabs';
-    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number; favicon?: string; groupId?: string; muted?: boolean; audible?: boolean; hadAudio?: boolean;}
+    import { domainOf } from '$lib/services/favicon';
+    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number; groupId?: string; muted?: boolean; audible?: boolean; hadAudio?: boolean;}
     type OS = 'macos' | 'windows' | 'linux';
     let os = $state<OS>('windows');
 
@@ -61,7 +63,12 @@
             const p = detectPlatform();
             os = p === 'macos' ? 'macos' : p === 'linux' ? 'linux' : 'windows';
         } catch {
-            os = /Macintosh|Mac OS X/.test(navigator.userAgent) ? 'macos' : 'windows';
+            const ua = navigator.userAgent;
+            os = /Macintosh|Mac OS X/.test(ua)
+                ? 'macos'
+                : /Linux|X11/.test(ua) && !/Android/.test(ua)
+                  ? 'linux'
+                  : 'windows';
         }
 
         void restoreTabSession();
@@ -109,6 +116,10 @@
     let tabGroups = $state<TabGroup[]>([]);
     const groupColors = ['#7b9eea', '#d98880', '#70ad7d', '#d6a85d', '#a78bcb', '#56aeb2'];
     let showChat = $state(false);
+    $effect(() => {
+        if (showChat) reading.enable();
+    });
+    let aiNewChatToken = $state(0);
     let activeTab = $derived(tabs.find((t) =>t.id === activeId));
 
     history.load();
@@ -209,9 +220,8 @@
     function toggleCurrentFavorite() {
         const tab = activeTab;
         if (!tab || !tab.url) return;
-        const existing = favorites.items.find((item) => item.url.trim() === tab.url.trim());
-        if (existing) {
-            favorites.remove(existing.id);
+        if (favorites.hasUrl(tab.url)) {
+            favorites.removeByUrl(tab.url);
             return;
         }
         favorites.upsertFromUrl(tab.title || domainOf(tab.url), tab.url);
@@ -262,6 +272,8 @@
 
     function releaseFavorite() {
         window.removeEventListener('pointermove', dragFavorite);
+        window.removeEventListener('pointerup', releaseFavorite);
+        window.removeEventListener('pointercancel', releaseFavorite);
         favDragIndex = null;
     }
 
@@ -331,38 +343,6 @@
         return (text.trim()[0] ?? '?').toUpperCase();
     }
 
-    function faviconFor(rawUrl: string): string {
-        try {
-            const u = new URL(rawUrl);
-            return `${u.origin}/favicon.ico`;
-        } catch {
-            return '';
-        }
-    }
-
-    function faviconFallback(e: Event, rawUrl: string) {
-        const img = e.currentTarget as HTMLImageElement;
-        if (img.dataset.fallback === 'ddg') {
-            img.style.opacity = '0';
-            img.style.display = 'none';
-            return;
-        }
-        img.dataset.fallback = 'ddg';
-        try {
-            const host = new URL(rawUrl).hostname;
-            img.src = `https://icons.duckduckgo.com/ip3/${host}.ico`;
-        } catch {
-            img.style.display = 'none';
-        }
-    }
-
-    function domainOf(url: string): string {
-        try {
-            return new URL(url).hostname.replace(/^www\./, '');
-        } catch {
-            return url;
-        }
-    }
 
     function fallbackTitle(url: string, input = ''): string {
         const text = input.trim();
@@ -482,7 +462,7 @@
 
     $effect(() => {
         void theme.preference;
-        void theme.current.bg;
+        void theme.current;
         void winRadius;
         sendThemeToUtilityViews();
     });
@@ -530,7 +510,14 @@
             kind,
             themeId: theme.preference,
             searchEngine: setup.data.searchEngine,
-            ...(kind === 'settings' ? { background: setup.data.background } : {})
+            ...(kind === 'settings'
+                ? {
+                      background: setup.data.background,
+                      customBg: setup.data.customBg,
+                      customSurface: setup.data.customSurface,
+                      customAccent: setup.data.customAccent
+                  }
+                : {})
         });
         emit('overlay-theme', utilityVars());
         if (kind === 'media') pushMediaState();
@@ -575,7 +562,7 @@
             tabs: mediaTabs.map((t) => ({
                 id: t.id,
                 title: t.title,
-                favicon: t.favicon,
+                url: t.url,
                 muted: t.muted ?? false,
                 audible: t.audible ?? false
             }))
@@ -718,7 +705,7 @@
         const unlistenDownloadsRemove = listen<{ id: string }>('overlay-downloads-remove', (e) => {
             if (e.payload?.id) downloads.remove(e.payload.id);
         });
-        const unlistenSettings = listen<{ theme?: string; searchEngine?: string; adblock?: boolean; showFavorites?: boolean; showRecent?: boolean; skipUngroupedTabs?: boolean; aiProvider?: string; background?: string | null }>('settings-changed', (e) => {
+        const unlistenSettings = listen<{ theme?: string; searchEngine?: string; adblock?: boolean; showFavorites?: boolean; showRecent?: boolean; skipUngroupedTabs?: boolean; aiProvider?: string; background?: string | null; customBg?: string; customSurface?: string; customAccent?: string }>('settings-changed', (e) => {
             const next = e.payload ?? {};
             let changed = false;
 
@@ -740,7 +727,21 @@
                 prefs.selectProvider(next.aiProvider as typeof prefs.aiProvider);
             }
 
-            if (next.theme && (next.theme === 'system' || PRESET_THEMES.some((item) => item.id === next.theme))) {
+            if (next.theme === 'custom' && next.customBg && next.customSurface && next.customAccent) {
+                setup.data.theme = 'custom';
+                setup.data.customBg = next.customBg;
+                setup.data.customSurface = next.customSurface;
+                setup.data.customAccent = next.customAccent;
+                theme.set({
+                    id: 'custom',
+                    name: 'Custom',
+                    bg: next.customBg,
+                    surface: next.customSurface,
+                    accent: next.customAccent,
+                    image: setup.data.background
+                });
+                changed = true;
+            } else if (next.theme && (next.theme === 'system' || PRESET_THEMES.some((item) => item.id === next.theme))) {
                 setup.data.theme = next.theme;
                 theme.set(next.theme);
                 changed = true;
@@ -814,8 +815,11 @@
             else if (action === 'newtab') newTab();
             else if (action === 'closetab') closeTab(activeId);
             else if (action === 'history') showHistory = true;
-            else if (action === 'print') printActiveTab();
+            else if (action === 'print') ctrlP();
             else if (action === 'fullscreen') void toggleFullscreen();
+            else if (action === 'search') focusAddressBar();
+            else if (action === 'chat') showChat = !showChat;
+            else if (action === 'cleardata') showHistory = true;
         });
         return () => {
             unlisten.then((off) => off());
@@ -882,12 +886,9 @@
             if (tab.url && tab.url !== url && (tab.audible || tab.hadAudio)) {
                 tab.audible = false;
                 tab.hadAudio = false;
-                if (!tab.muted) {
-                }
             }
             tab.url = url;
-            tab.favicon = faviconFor(url);
-            void reading.capture(url);
+            void reading.capture(url, tabId);
 
             const pending = navPending.get(tabId);
             if (pending !== undefined) {
@@ -1187,7 +1188,6 @@
                 hist: entry.hist,
                 cursor: entry.cursor,
                 zoom: entry.zoom,
-                favicon: entry.hasNavigated ? faviconFor(entry.url) : undefined,
                 groupId: entry.groupId ?? undefined
             }));
             const restoredGroups: TabGroup[] = session.groups.map((g) => ({
@@ -1239,7 +1239,6 @@
             tab.searchText = input;
             tab.hasNavigated = true;
             tab.title = fallbackTitle(url, input);
-            tab.favicon = faviconFor(url);
             history.record(url, input, isUrl ? null : input);
 
             lastActionAt.set(tab.id, Date.now());
@@ -1283,7 +1282,13 @@
 
         const key = e.key.toLowerCase();
 
-        if (e.shiftKey) return;
+        if (e.shiftKey) {
+            if (key === 's') { e.preventDefault(); showChat = !showChat; }
+            else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); showHistory = true; }
+            return;
+        }
+
+        if (key === 'k') { e.preventDefault(); focusAddressBar(); return; }
 
         if (key === 'a') {
             const target = e.target as HTMLElement | null;
@@ -1299,8 +1304,13 @@
         else if (e.key === '0') { e.preventDefault(); zoomReset(); }
         else if (key === 't') { e.preventDefault(); newTab(); }
         else if (key === 'h') { e.preventDefault(); showHistory = true; }
-        else if (key === 'p') { e.preventDefault(); printActiveTab(); }
+        else if (key === 'p') { e.preventDefault(); ctrlP(); }
         else if (key === 'w') { e.preventDefault(); closeTab(activeId); }
+    }
+
+    function ctrlP() {
+        if (showChat) aiNewChatToken += 1;
+        else printActiveTab();
     }
     function goBack() {
         const tab = activeTab;
@@ -1310,7 +1320,6 @@
             tab.cursor = -1;
             tab.hasNavigated = false;
             tab.title = 'New tab';
-            tab.favicon = '';
             return;
         }
 
@@ -1318,7 +1327,6 @@
         const target = tab.hist[tab.cursor];
         tab.url = target;
         tab.title = domainOf(target);
-        tab.favicon = faviconFor(target);
         lastActionAt.set(tab.id, Date.now());
         navPending.set(tab.id, Date.now());
         tabBack(tab.id);
@@ -1332,7 +1340,6 @@
             tab.cursor = 0;
             tab.url = tab.hist[0];
             tab.title = domainOf(tab.hist[0]);
-            tab.favicon = faviconFor(tab.hist[0]);
             tab.hasNavigated = true;
             return;
         }
@@ -1341,7 +1348,6 @@
         const target = tab.hist[tab.cursor];
         tab.url = target;
         tab.title = domainOf(target);
-        tab.favicon = faviconFor(target);
         lastActionAt.set(tab.id, Date.now());
         navPending.set(tab.id, Date.now());
         tabForward(tab.id);
@@ -1354,18 +1360,6 @@
             input.select();
         }
     }
-    $effect(() => {
-        const unlisten = listen<string>('global-shortcut', (e) => {
-            const action = e.payload;
-            if (action === 'newtab') newTab();
-            else if (action === 'closetab') closeTab(activeId);
-            else if (action === 'history') showHistory = true;
-            else if (action === 'print') printActiveTab();
-            else if (action === 'search') focusAddressBar();
-            else if (action === 'chat') showChat = !showChat;
-        });
-        return () => { unlisten.then((off) => off()); };
-    });
 
 </script>
 
@@ -1431,7 +1425,7 @@
             <div class="favorite-pages" class:expanded={favBarExpanded} aria-label="Favorite pages">
                 {#each (favBarExpanded ? favorites.items : favorites.items.slice(0, 3)) as favorite (favorite.id)}
                     <button class="favorite-page" type="button" title={favorite.title} aria-label={favorite.title} onclick={() => openFavorite(favorite.url)}>
-                        <img src={faviconFor(favorite.url)} alt="" onerror={(e) => faviconFallback(e, favorite.url)} />
+                        <Favicon url={favorite.url} size={16} />
                     </button>
                 {/each}
                 {#if favorites.items.length > 3}
@@ -1469,7 +1463,12 @@
             menuResetToken={tabMenuReset}
         />
 
-        <div class="drag-region" data-tauri-drag-region role="presentation" ondblclick={toggleMaximizeOnDrag}></div>
+        <div
+            class="drag-region"
+            data-tauri-drag-region={isFullscreen ? null : ''}
+            role="presentation"
+            ondblclick={toggleMaximizeOnDrag}
+        ></div>
 
         {#if os === 'macos'}
             {@render menuButton()}
@@ -1507,7 +1506,6 @@
     <path d="M11.5 3a17 17 0 0 0 0 18" />
     <path d="M12.5 3a17 17 0 0 0 0 18" />
 </svg></i>
-                <p></p>
                 <code>{activeTab.url}</code>
             </div>
             {:else}
@@ -1544,7 +1542,7 @@
                                 onpointerdown={(e) => grabFavorite(i, e)}
                             >
                                 <button class="fav" type="button" onclick={() => !favEditing && openFavorite(fav.url)}>
-                                    <span class="fav-icon"><img src={faviconFor(fav.url)} alt="" onerror={(e) => faviconFallback(e, fav.url)} /></span>
+                                    <span class="fav-icon"><Favicon url={fav.url} size={26} /></span>
                                     <span class="fav-title">{fav.title}</span>
                                 </button>
                                 {#if favEditing}
@@ -1580,7 +1578,7 @@
                             {#each history.entries.slice(0, 9) as entry (entry.id)}
                             <button class="recent" type="button" onclick={() => navigate(entry.query ?? entry.url)}>
                                 <span class="recent-icon">
-                                    <img src={faviconFor(entry.url)} alt="" onerror={(e) => faviconFallback(e, entry.url)} />
+                                    <Favicon url={entry.url} size={18} />
                                 </span>
                                 <span class="recent-text">
                                     <span class="recent-title">{entry.query ?? entry.title}</span>
@@ -1600,6 +1598,8 @@
         <Aipanel
             username={setup.data.name.trim() || 'there'}
             pageUrl={activeTab?.hasNavigated ? (activeTab?.url ?? null) : null}
+            tabId={activeTab?.hasNavigated ? activeId : null}
+            newChatToken={aiNewChatToken}
             onclose={() => (showChat = false)}
         />
         {/if}
@@ -1799,7 +1799,6 @@
         transition: background-color .14s ease;
     }
     .favorite-page:hover { background: var(--hover); }
-    .favorite-page img { width: 16px; height: 16px; border-radius: 4px; object-fit: contain; }
 
     .favorite-pages.expanded {
         max-width: 260px;
@@ -2023,13 +2022,6 @@
         font-weight: 600;
         transition: background-color 0.14s ease;
     }
-    .fav-icon img {
-        width: 28px;
-        height: 28px;
-        border-radius: 6px;
-        object-fit: contain;
-    }
-
     .fav:hover .fav-icon {
         background: color-mix(in srgb, var(--text) 7%, transparent);
     }
@@ -2110,13 +2102,6 @@
         height: 24px;
         background: transparent;
     }
-    .recent-icon img {
-        width: 20px;
-        height: 20px;
-        border-radius: 4px;
-        object-fit: contain;
-    }
-
     .recent-text {
         display: flex;
         flex-direction: column;
@@ -2152,5 +2137,9 @@
 
     .shell.fullscreen .content {
         border-radius: 0;
+    }
+
+    .shell.fullscreen .drag-region {
+        -webkit-app-region: no-drag;
     }
 </style>

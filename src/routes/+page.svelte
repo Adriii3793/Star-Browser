@@ -5,12 +5,14 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { LogicalSize } from '@tauri-apps/api/dpi';
   import Setup from '$lib/comp/setup/setup.svelte';
+  import SetupProgress from '$lib/comp/setup/SetupProgress.svelte';
   import BroswerShell from '$lib/comp/browser/BroswerShell.svelte';
   import WindowControls from '$lib/comp/browser/WindowControls.svelte';
   import { windowChrome } from '$lib/stores/windowChrome.svelte';
   import { theme } from '$lib/stores/theme.svelte';
   import { PRESET_THEMES, type Theme } from '$lib/stores/theme.svelte';
-  import { setup } from '$lib/stores/setup.svelte';
+  import { setup, DOT_COUNT } from '$lib/stores/setup.svelte';
+  import { isSetupComplete } from '$lib/services/setup';
   import '../app.css';
 
   theme.init();
@@ -34,8 +36,11 @@
   }
 
   let setupDone = $state<boolean | null>(null);
-  let os = $state<'macos' | 'windows' | 'linux'>('windows');
+  let os = $state<'macos' | 'windows' | 'linux'>(
+    typeof navigator === 'undefined' ? 'windows' : detectOs()
+  );
   let squared = $derived(windowChrome.squared);
+  let showSetupChrome = $derived(setupDone === false && setup.dotIndex >= 0);
 
   type ResizeDir =
     | 'North' | 'South' | 'East' | 'West'
@@ -76,16 +81,23 @@
     void exitSetupWindowMode();
   }
 
-  onMount(async () => {
+  function detectOs(): 'macos' | 'windows' | 'linux' {
     try {
       const p = osPlatform();
-      os = p === 'macos' ? 'macos' : p === 'linux' ? 'linux' : 'windows';
+      return p === 'macos' ? 'macos' : p === 'linux' ? 'linux' : 'windows';
     } catch {
-      os = 'windows';
+      const ua = navigator.userAgent;
+      if (/Macintosh|Mac OS X/.test(ua)) return 'macos';
+      if (/Linux|X11/.test(ua) && !/Android/.test(ua)) return 'linux';
+      return 'windows';
     }
+  }
+
+  onMount(async () => {
+    os = detectOs();
 
     try {
-      setupDone = await invoke('is_setup_complete');
+      setupDone = await isSetupComplete();
     } catch (e) {
       console.warn('is_setup_complete is not available', e);
       setupDone = true;
@@ -98,16 +110,42 @@
 
 <div
   class="app"
-  class:rounded={(os === 'macos' || os === 'windows') && !squared}
+  class:rounded={!squared}
   class:setup={setupDone !== true}
 >
   {#if setupDone === null || setupDone === false}
+    {#snippet backButton()}
+      <button
+        class="back"
+        type="button"
+        aria-label="Go back"
+        title="Go back"
+        disabled={!setup.canGoBack}
+        onclick={() => setup.back()}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+      </button>
+    {/snippet}
+
     <div class="titlebar">
       {#if os === 'macos'}
         <WindowControls platform={os} maximizable={false} />
+        {#if showSetupChrome}{@render backButton()}{/if}
         <div class="drag-region" data-tauri-drag-region role="presentation"></div>
       {:else}
+        {#if showSetupChrome}{@render backButton()}{/if}
         <div class="drag-region" data-tauri-drag-region role="presentation"></div>
+      {/if}
+
+      {#if showSetupChrome}
+        <div class="progress-slot">
+          <SetupProgress count={DOT_COUNT} index={setup.dotIndex} />
+        </div>
+      {/if}
+
+      {#if os !== 'macos'}
         <WindowControls platform={os} maximizable={false} />
       {/if}
     </div>
@@ -154,7 +192,7 @@
     width: 100vw;
     overflow: hidden;
     background: var(--bg-chrome);
-    border-radius: 0 0 var(--win-radius) var(--win-radius);
+    border-radius: var(--win-radius);
   }
 
   .app.rounded {
@@ -169,7 +207,7 @@
     z-index: 100000;
     border: 1px solid var(--border-strong);
     border-top: none;
-    border-radius: 0 0 var(--win-radius) var(--win-radius);
+    border-radius: var(--win-radius);
     pointer-events: none;
   }
 
@@ -193,6 +231,61 @@
     min-width: 72px;
     align-self: stretch;
     -webkit-app-region: drag;
+  }
+
+  .back {
+    -webkit-app-region: no-drag;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    align-self: center;
+    width: 28px;
+    height: 28px;
+    margin-left: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      opacity 0.15s ease;
+  }
+
+  .back:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .back:disabled {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .back:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .back svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .progress-slot {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
   }
 
   .content {

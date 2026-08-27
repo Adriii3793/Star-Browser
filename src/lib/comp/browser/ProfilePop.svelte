@@ -1,6 +1,8 @@
 <script lang="ts">
     import { emit, listen } from '@tauri-apps/api/event';
     import { onMount } from 'svelte';
+    import { cropAvatar } from '$lib/services/avatar';
+    import CloseButton from '../ui/CloseButton.svelte';
 
     let {
         onclose,
@@ -48,16 +50,13 @@
         editing = true;
     }
 
-    function pickAvatar(event: Event) {
+    async function pickAvatar(event: Event) {
         const input = event.currentTarget as HTMLInputElement;
         const file = input.files?.[0];
         input.value = '';
-        if (!file || !file.type.startsWith('image/')) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            draftAvatar = typeof reader.result === 'string' ? reader.result : null;
-        };
-        reader.readAsDataURL(file);
+        if (!file) return;
+        const cropped = await cropAvatar(file);
+        if (cropped) draftAvatar = cropped;
     }
 
     function save() {
@@ -74,9 +73,7 @@
     {#if editing}
         <div class="editor-head">
             <span>Edit profile</span>
-            <button class="close" type="button" aria-label="Cancel" onclick={() => (editing = false)}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
+            <CloseButton label="Cancel editing" size="sm" onclick={() => (editing = false)} />
         </div>
         <div class="editor-avatar">
             <span class="avatar large">
@@ -147,9 +144,6 @@
     }
 
     .editor-head { display: flex; align-items: center; justify-content: space-between; padding: 5px 5px 10px; font-size: 13px; font-weight: 700; }
-    .close { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; }
-    .close:hover { background: var(--hover); color: var(--text); }
-    .close svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
     .editor-avatar { display: flex; align-items: center; gap: 10px; padding: 2px 6px 12px; }
     .avatar.large { width: 42px; height: 42px; font-size: 17px; }
     .photo, .secondary, .primary { border-radius: 8px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }

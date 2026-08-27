@@ -125,12 +125,84 @@ fn sources(html: &str, tag: &str, base: &url::Url, limit: usize) -> Vec<String> 
 
 fn attr(tag_src: &str, name: &str) -> Option<String> {
     let lower = tag_src.to_ascii_lowercase();
-    let at = lower.find(name)?;
-    let rest = tag_src[at + name.len()..].trim_start().strip_prefix('=')?.trim_start();
-    match rest.chars().next()? {
-        q @ ('"' | '\'') => rest[1..].find(q).map(|e| rest[1..1 + e].to_string()),
-        _ => Some(rest.split_whitespace().next()?.to_string()),
+    let bytes = lower.as_bytes();
+    let mut from = 0usize;
+
+    while let Some(rel) = lower[from..].find(name) {
+        let at = from + rel;
+        from = at + name.len();
+
+        let starts_attribute = at > 0 && bytes[at - 1].is_ascii_whitespace();
+        if !starts_attribute {
+            continue;
+        }
+        let after = &tag_src[at + name.len()..];
+        let Some(rest) = after.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        return match rest.chars().next()? {
+            q @ ('"' | '\'') => rest[1..].find(q).map(|e| rest[1..1 + e].to_string()),
+            _ => rest.split_whitespace().next().map(str::to_string),
+        };
     }
+    None
+}
+
+fn decode_entities(input: &str) -> String {
+    const NAMED: &[(&str, &str)] = &[
+        ("amp", "&"), ("lt", "<"), ("gt", ">"), ("quot", "\""), ("apos", "'"),
+        ("nbsp", " "), ("mdash", "\u{2014}"), ("ndash", "\u{2013}"), ("hellip", "\u{2026}"),
+        ("lsquo", "\u{2018}"), ("rsquo", "\u{2019}"), ("ldquo", "\u{201C}"), ("rdquo", "\u{201D}"),
+        ("laquo", "\u{00AB}"), ("raquo", "\u{00BB}"), ("times", "\u{00D7}"), ("middot", "\u{00B7}"),
+        ("bull", "\u{2022}"), ("deg", "\u{00B0}"), ("euro", "\u{20AC}"), ("pound", "\u{00A3}"),
+        ("copy", "\u{00A9}"), ("reg", "\u{00AE}"), ("trade", "\u{2122}"), ("shy", ""),
+    ];
+
+    if !input.contains('&') {
+        return input.to_string();
+    }
+
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        let tail = &rest[amp..];
+        let Some(semi) = tail
+            .char_indices()
+            .take(12)
+            .find(|(_, c)| *c == ';')
+            .map(|(i, _)| i)
+        else {
+            out.push('&');
+            rest = &tail[1..];
+            continue;
+        };
+        let body = &tail[1..semi];
+        let decoded = if let Some(hex) = body.strip_prefix("#x").or_else(|| body.strip_prefix("#X")) {
+            u32::from_str_radix(hex, 16).ok().and_then(char::from_u32).map(String::from)
+        } else if let Some(dec) = body.strip_prefix('#') {
+            dec.parse::<u32>().ok().and_then(char::from_u32).map(String::from)
+        } else {
+            NAMED
+                .iter()
+                .find(|(name, _)| *name == body)
+                .map(|(_, value)| (*value).to_string())
+        };
+
+        match decoded {
+            Some(value) => {
+                out.push_str(&value);
+                rest = &tail[semi + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn visible_text(html: &str) -> String {
@@ -149,8 +221,7 @@ fn visible_text(html: &str) -> String {
             _ => {}
         }
     }
-    text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-        .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ")
+    decode_entities(&text)
         .lines()
         .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|l| !l.is_empty())
@@ -158,4 +229,61 @@ fn visible_text(html: &str) -> String {
         .join("\n")
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{attr, decode_entities};
+
+    #[test]
+    fn reads_src_even_when_data_src_or_srcset_comes_first() {
+        assert_eq!(
+            attr(r#"<img data-src="lazy.jpg" src="real.jpg""#, "src").as_deref(),
+            Some("real.jpg")
+        );
+        assert_eq!(
+            attr(r#"<img srcset="a.jpg 1x, b.jpg 2x" src="real.jpg""#, "src").as_deref(),
+            Some("real.jpg")
+        );
+        assert_eq!(
+            attr(r#"<img class="hero-src" src='real.jpg'"#, "src").as_deref(),
+            Some("real.jpg")
+        );
+    }
+
+    #[test]
+    fn handles_unquoted_and_missing_values() {
+        assert_eq!(attr("<img src=plain.jpg alt=x", "src").as_deref(), Some("plain.jpg"));
+        assert_eq!(attr(r#"<img data-src="only-lazy.jpg""#, "src"), None);
+        assert_eq!(attr("<img>", "src"), None);
+    }
+
+    #[test]
+    fn tolerates_whitespace_around_the_equals_sign() {
+        assert_eq!(attr(r#"<img  src = "spaced.jpg""#, "src").as_deref(), Some("spaced.jpg"));
+    }
+
+    #[test]
+    fn decodes_named_numeric_and_hex_entities() {
+        assert_eq!(decode_entities("a &amp; b"), "a & b");
+        assert_eq!(decode_entities("it&#39;s"), "it's");
+        assert_eq!(decode_entities("it&#8217;s"), "it\u{2019}s");
+        assert_eq!(decode_entities("&#x2014;"), "\u{2014}");
+        assert_eq!(decode_entities("&mdash;&hellip;"), "\u{2014}\u{2026}");
+    }
+
+    #[test]
+    fn leaves_stray_ampersands_and_unknown_names_alone() {
+        assert_eq!(decode_entities("Tom & Jerry"), "Tom & Jerry");
+        assert_eq!(decode_entities("a=1&b=2"), "a=1&b=2");
+        assert_eq!(decode_entities("caf&eacute;"), "caf&eacute;");
+        assert_eq!(decode_entities("no entities here"), "no entities here");
+    }
+
+    #[test]
+    fn does_not_split_multibyte_characters_after_an_ampersand() {
+        assert_eq!(decode_entities("&日本語のテキスト"), "&日本語のテキスト");
+        assert_eq!(decode_entities("a & 日本語 &amp; b"), "a & 日本語 & b");
+        assert_eq!(decode_entities("&🎉🎉🎉🎉;"), "&🎉🎉🎉🎉;");
+    }
 }

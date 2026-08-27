@@ -86,14 +86,21 @@ class AiStore {
 
     #applyDirectives(reply: string): string {
         const notes: string[] = [];
+        let saved = 0;
+        let forgot = 0;
         const cleaned = reply.replace(/\[\[\s*(remember|forget)\s*:\s*([\s\S]*?)\s*\]\]/gi, (_match, kind, value) => {
             const text = String(value).trim();
             if (!text) return '';
             if (kind.toLowerCase() === 'remember') {
-                if (memory.add(text)) notes.push(`Remembered: ${text}`);
-                else notes.push(memory.lastError ?? `Could not remember: ${text}`);
+                if (memory.add(text)) {
+                    notes.push(`Remembered: ${text}`);
+                    saved += 1;
+                } else {
+                    notes.push(memory.lastError ?? `Could not remember: ${text}`);
+                }
             } else {
                 const removed = memory.forget(text);
+                forgot += removed;
                 notes.push(
                     removed > 0
                         ? `Forgot ${removed} item${removed === 1 ? '' : 's'}`
@@ -103,6 +110,13 @@ class AiStore {
             return '';
         }).replace(/[ \t]{2,}/g, ' ').trim();
         this.lastMemoryNote = notes.length ? notes.join(' · ') : null;
+
+        if (!cleaned && notes.length) {
+            if (saved && forgot) return "Got it — I've updated what I remember.";
+            if (saved) return saved === 1 ? "Got it, I'll remember that." : "Got it, I'll remember those.";
+            if (forgot) return forgot === 1 ? "Done — I've forgotten that." : "Done — I've forgotten those.";
+            return notes.join(' · ');
+        }
         return cleaned;
     }
 

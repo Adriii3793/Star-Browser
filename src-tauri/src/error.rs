@@ -11,20 +11,16 @@ pub enum AppError {
     #[error("filesystem error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("could not resolve the application data directory")]
-    #[allow(dead_code)]
-    AppDir,
-
     #[error("tauri error: {0}")]
     Tauri(#[from] tauri::Error),
 
     #[error("url not valid")]
     InvalidUrl,
 
-    #[error("ftab not found")]
+    #[error("tab not found")]
     WindowNotFound,
 
-    #[error("API key not configured ")]
+    #[error("API key not configured")]
     MissingApiKey,
     #[error("daily AI request limit reached")]
     RateLimited,
@@ -46,9 +42,6 @@ pub enum AppError {
 
     #[error("could not save your tab session")]
     TabSessionSerialize,
-
-    #[error("could not open the default-apps settings")]
-    DefaultBrowser,
 }
 
 impl Serialize for AppError {

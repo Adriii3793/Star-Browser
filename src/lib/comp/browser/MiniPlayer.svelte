@@ -1,11 +1,13 @@
 <script lang="ts">
     import { emit, listen } from '@tauri-apps/api/event';
     import { onMount } from 'svelte';
+    import CloseButton from '../ui/CloseButton.svelte';
+    import Favicon from '../ui/Favicon.svelte';
 
     interface MediaTab {
         id: string;
         title: string;
-        favicon?: string;
+        url?: string;
         muted?: boolean;
         audible?: boolean;
     }
@@ -35,9 +37,7 @@
 <section class="panel" aria-label="Media playing in tabs">
     <header>
         <h1>Playing in tabs</h1>
-        <button class="close" type="button" aria-label="Close" onclick={onclose}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-        </button>
+        <CloseButton label="Close mini player" size="sm" onclick={onclose} />
     </header>
 
     {#if tabs.length === 0}
@@ -47,8 +47,8 @@
             {#each tabs as tab (tab.id)}
                 <li class="row">
                     <span class="icon">
-                        {#if tab.favicon}
-                            <img src={tab.favicon} alt="" />
+                        {#if tab.url}
+                            <Favicon url={tab.url} size={18} />
                         {:else}
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
                         {/if}
@@ -121,21 +121,6 @@
         color: var(--text-muted);
     }
 
-    .close {
-        display: grid;
-        place-items: center;
-        width: 22px;
-        height: 22px;
-        padding: 0;
-        border: none;
-        border-radius: 6px;
-        background: transparent;
-        color: var(--text-muted);
-        cursor: pointer;
-    }
-    .close:hover { background: var(--hover); color: var(--text); }
-    .close svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; }
-
     .empty {
         margin: 0;
         padding: 18px 4px 22px;
@@ -173,8 +158,7 @@
         color: var(--accent);
         overflow: hidden;
     }
-    .icon img { width: 15px; height: 15px; border-radius: 4px; object-fit: contain; }
-    .icon svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .icon > svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
     .name {
         min-width: 0;

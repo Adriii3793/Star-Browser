@@ -28,15 +28,27 @@
     let copied = $state(false);
     let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
+    let missedSync = $state(false);
+
     $effect(() => {
-        if (url !== lastSyncedUrl) {
-            lastSyncedUrl = url;
-            if (!focused || !dirty) {
-                value = url;
-                dirty = false;
-            }
+        if (url === lastSyncedUrl) return;
+        lastSyncedUrl = url;
+        if (focused && dirty) {
+            missedSync = true;
+            return;
         }
+        value = url;
+        dirty = false;
+        missedSync = false;
     });
+
+    function releaseFocus() {
+        focused = false;
+        dirty = false;
+        if (!missedSync) return;
+        value = url;
+        missedSync = false;
+    }
 
     async function copyLink() {
         if (!url) return;
@@ -58,7 +70,7 @@
     }
 </script>
 
-<svelte:window onblur={() => (focused = false)} />
+<svelte:window onblur={releaseFocus} />
 
 	<div class="navbar">
 
@@ -78,7 +90,7 @@
         <input
             bind:value
             onfocus={() => (focused = true)}
-            onblur={() => { focused = false; dirty = false; }}
+            onblur={releaseFocus}
             oninput={() => (dirty = true)}
             onkeydown={(e) => {
                 if (e.key === 'Enter') {

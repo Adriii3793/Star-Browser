@@ -11,10 +11,21 @@
 
     type Kind = 'settings' | 'history' | 'downloads' | 'media' | 'profile' | 'tabmenu' | 'groupedit' | null;
     let kind = $state<Kind>(null);
-    let settings = $state<{ themeId: string; searchEngine: string; background: string | null }>({
+    interface SettingsState {
+        themeId: string;
+        searchEngine: string;
+        background: string | null;
+        customBg: string | null;
+        customSurface: string | null;
+        customAccent: string | null;
+    }
+    let settings = $state<SettingsState>({
         themeId: 'light',
         searchEngine: 'google',
-        background: null
+        background: null,
+        customBg: null,
+        customSurface: null,
+        customAccent: null
     });
 
     function close() {
@@ -28,13 +39,26 @@
     }
 
     onMount(() => {
-        const unlistenShow = listen<{ kind: Kind; themeId?: string; searchEngine?: string; background?: string | null }>('overlay-show', (e) => {
+        const unlistenShow = listen<{
+            kind: Kind;
+            themeId?: string;
+            searchEngine?: string;
+            background?: string | null;
+            customBg?: string | null;
+            customSurface?: string | null;
+            customAccent?: string | null;
+        }>('overlay-show', (e) => {
             kind = e.payload?.kind ?? null;
             if (!e.payload) return;
             settings = {
                 themeId: e.payload.themeId ?? settings.themeId,
                 searchEngine: e.payload.searchEngine ?? settings.searchEngine,
-                background: 'background' in e.payload ? e.payload.background ?? null : settings.background
+                background: 'background' in e.payload ? e.payload.background ?? null : settings.background,
+                customBg: 'customBg' in e.payload ? e.payload.customBg ?? null : settings.customBg,
+                customSurface:
+                    'customSurface' in e.payload ? e.payload.customSurface ?? null : settings.customSurface,
+                customAccent:
+                    'customAccent' in e.payload ? e.payload.customAccent ?? null : settings.customAccent
             };
         });
         const unlistenTheme = listen<Record<string, string>>('overlay-theme', (e) => {
@@ -53,7 +77,15 @@
 </script>
 
 {#if kind === 'settings'}
-    <Settings onclose={close} themeId={settings.themeId} searchEngine={settings.searchEngine} background={settings.background} />
+    <Settings
+        onclose={close}
+        themeId={settings.themeId}
+        searchEngine={settings.searchEngine}
+        background={settings.background}
+        customBg={settings.customBg}
+        customSurface={settings.customSurface}
+        customAccent={settings.customAccent}
+    />
 {:else if kind === 'history'}
     <History onclose={close} onopen={openUrl} />
 {:else if kind === 'downloads'}
@@ -103,6 +135,9 @@
         --text-soft: #8a6b57;
         --text-muted: #ac8064;
         --field: #f7f1ec;
+        --field-strong: #efe6de;
+        --tab-active: #ffffff;
+        --accent-hover: #6b8fc4;
         --tab-hover: #fbf6f2;
         --accent: #80a4d4;
         --accent-contrast: #1c1917;

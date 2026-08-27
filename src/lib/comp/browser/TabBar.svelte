@@ -5,7 +5,7 @@
 	interface TabData {
 		id: string;
 		title: string;
-		favicon?: string;
+		url?: string;
 		groupId?: string;
 		muted?: boolean;
 		audible?: boolean;
@@ -267,6 +267,8 @@
 
 	async function release() {
 		window.removeEventListener('pointermove', drag);
+		window.removeEventListener('pointerup', release);
+		window.removeEventListener('pointercancel', release);
 		clearTimeout(dwellTimer);
 		dwellTimer = undefined;
 		dwellId = null;
@@ -367,7 +369,7 @@
 	<Tab
 		index={i}
 		title={tab.title}
-		favicon={tab.favicon ?? ''}
+		url={tab.url ?? ''}
 		active={tab.id === activeId}
 		muted={tab.muted ?? false}
 		audible={tab.audible ?? false}

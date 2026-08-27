@@ -3,10 +3,12 @@
 	import type { ChatMessage, ContentPart } from '$lib/services/ai';
 	import Loading from '../ui/Loading.svelte';
 	import { memory } from '$lib/stores/memory.svelte';
-	import { fetchPageContext } from '$lib/services/ai';
+	import { fetchPageContext, readTabPage, saveTextFile } from '$lib/services/ai';
 	import { renderMarkdown } from '$lib/services/markdown';
 	import { prefs, AI_PROVIDERS, type AiProvider } from '$lib/stores/prefs.svelte';
 	import { cubicOut } from 'svelte/easing';
+	import { untrack } from 'svelte';
+	import CloseButton from '../ui/CloseButton.svelte';
 
 	type ChatEntry = { id: string; title: string; messages: ChatMessage[]; timestamp: number };
 	type DrawerView = 'menu' | 'memory';
@@ -17,9 +19,11 @@
 	const WIDTH_KEY = 'ai_panel_width';
 	const HISTORY_KEY = 'ai_chat_history';
 
-	let { username = 'there', pageUrl = null, onclose }: {
+	let { username = 'there', pageUrl = null, tabId = null, newChatToken = 0, onclose }: {
 		username?: string;
 		pageUrl?: string | null;
+		tabId?: string | null;
+		newChatToken?: number;
 		onclose: () => void;
 	} = $props();
 
@@ -96,10 +100,6 @@
 
 	$effect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
-				e.preventDefault();
-				newConversation();
-			}
 			if (e.key === 'Escape') {
 				if (menuFor) menuFor = null;
 				else if (modelOpen) modelOpen = false;
@@ -108,6 +108,14 @@
 		};
 		window.addEventListener('keydown', onKey);
 		return () => window.removeEventListener('keydown', onKey);
+	});
+
+	let lastNewChatToken = untrack(() => newChatToken);
+	$effect(() => {
+		const token = newChatToken;
+		if (token === lastNewChatToken) return;
+		lastNewChatToken = token;
+		newConversation();
 	});
 
 	function showToast(msg: string) {
@@ -254,28 +262,25 @@
 		return `---\ntitle: ${title}\nexported: ${stamp}\nmessages: ${messages.length}\n---\n\n${body}`;
 	}
 
-	function saveFile(text: string, name: string, type = 'text/markdown') {
-		const blob = new Blob([text], { type });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = name;
-		document.body.appendChild(a);
-		a.click();
-		a.remove();
-		setTimeout(() => URL.revokeObjectURL(url), 10_000);
-		showToast(`Saved ${name} to your Downloads folder`);
+	async function saveFile(text: string, name: string) {
+		try {
+			const path = await saveTextFile(name, text);
+			showToast(`Saved to ${path}`);
+		} catch (e) {
+			console.error('save_text_file failed:', e);
+			showToast(`Could not save ${name}`);
+		}
 	}
 
 	function downloadChat(chat: ChatEntry) {
 		menuFor = null;
 		const safe = chat.title.replace(/[^a-z0-9\- ]/gi, '').trim() || 'star-chat';
-		saveFile(chatToMarkdown(chat.messages, chat.title), `${safe}.md`);
+		void saveFile(chatToMarkdown(chat.messages, chat.title), `${safe}.md`);
 	}
 
 	function exportConversation() {
 		if (ai.messages.length === 0) return;
-		saveFile(chatToMarkdown(ai.messages, 'star chat export'), 'star-chat.md');
+		void saveFile(chatToMarkdown(ai.messages, 'star chat export'), 'star-chat.md');
 	}
 
 	function relativeTime(ts: number): string {
@@ -301,7 +306,7 @@
 	}
 
 	function exportMemory() {
-		saveFile(memory.export(), 'ai-memory.md');
+		void saveFile(memory.export(), 'ai-memory.md');
 	}
 
 	function importMemory(e: Event) {
@@ -334,6 +339,19 @@
 	async function currentPage() {
 		if (!pageUrl) return null;
 		if (cachedPage?.url === pageUrl) return cachedPage.data;
+
+		if (tabId) {
+			try {
+				const live = await readTabPage(tabId);
+				if (live?.text?.trim()) {
+					cachedPage = { url: pageUrl, data: live };
+					return live;
+				}
+			} catch (e) {
+				console.warn('read_tab_page unavailable, falling back to fetch:', e);
+			}
+		}
+
 		try {
 			const data = await fetchPageContext(pageUrl);
 			cachedPage = { url: pageUrl, data };
@@ -591,9 +609,7 @@
 					<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
 				</svg>
 			</button>
-			<button class="icon" type="button" aria-label="Close" title="Close" onclick={onclose}>
-				<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-			</button>
+			<CloseButton label="Close AI panel" onclick={onclose} />
 		</div>
 	</header>
 
@@ -815,9 +831,7 @@
 					</button>
 					<h2>AI memory</h2>
 				{/if}
-				<button class="icon small" type="button" aria-label="Close menu" onclick={closeDrawer}>
-					<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-				</button>
+				<CloseButton label="Close menu" onclick={closeDrawer} />
 			</div>
 
 			{#if drawerView === 'menu'}
@@ -969,7 +983,7 @@
 	.resize-handle {
 		position: absolute;
 		top: 0;
-		left: -5px;
+		left: 0;
 		width: 12px;
 		height: 100%;
 		z-index: 5;
@@ -985,7 +999,7 @@
 		height: 34px;
 		border-radius: 999px;
 		background: var(--text-muted, #ac8064);
-		opacity: 0.3;
+		opacity: 0;
 		transition: opacity 0.16s ease, height 0.16s ease, background-color 0.16s ease;
 	}
 	.resize-handle:hover::before {
@@ -1026,7 +1040,6 @@
 	}
 	.icon:hover { background: var(--field, #f7f1ec); color: var(--text, #4a3a2e); }
 	.icon:disabled { opacity: 0.45; cursor: default; }
-	.icon.small { width: 28px; height: 28px; }
 	.icon svg {
 		width: 18px;
 		height: 18px;
@@ -1703,11 +1716,15 @@
 		padding: 8px 12px;
 		border-radius: 10px;
 		background: var(--text, #4a3a2e);
-		color: var(--accent-contrast);
+		color: var(--bg-page, #fff);
 		font-size: 12px;
 		line-height: 1.35;
 	}
-	.toast.subtle { background: var(--field, #f7f1ec); color: var(--text-soft, #8a6b57); }
+	.toast.subtle {
+		background: var(--field, #f7f1ec);
+		color: var(--text, #4a3a2e);
+		border: 1px solid var(--border);
+	}
 
 	@media (prefers-reduced-motion: reduce) {
 		.icon,

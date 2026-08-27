@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "star",
+  "productName": "Star",
   "version": "0.1.0",
   "identifier": "com.studio.star",
   "build": {
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "star",
+        "title": "Star",
         "width": 1280,
         "height": 800,
         "resizable": true,
@@ -22,7 +22,7 @@
         "minHeight": 600,
         "decorations": false,
         "transparent": true,
-        "shadow": true,
+        "shadow": false,
         "dragDropEnabled": false,
         "visible": false
       }
@@ -38,18 +38,34 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "publisher": "Star Development Team",
-    "copyright": "\u00a9 2026 Star Development Team",
+    "publisher": "Star Studio",
+    "copyright": "\u00a9 2026 Star Studio",
+    "license": "MIT",
     "category": "Productivity",
     "shortDescription": "Star \u2014 a minimalist AI browser",
+    "longDescription": "Star is a minimalist web browser with a built-in AI assistant: tab groups, ad blocking, a media mini-player, and a side panel that can answer questions about the page you are reading.",
     "homepage": "https://github.com/Adriii3793/Project-2k26",
     "icon": [
       "icons/32x32.png",
+      "icons/64x64.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/icon.png",
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "linux": {
+      "rpm": {
+        "files": {
+          "/usr/share/metainfo/com.studio.star.metainfo.xml": "linux/com.studio.star.metainfo.xml"
+        }
+      },
+      "deb": {
+        "files": {
+          "/usr/share/metainfo/com.studio.star.metainfo.xml": "linux/com.studio.star.metainfo.xml"
+        }
+      }
+    },
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream metadata. Software centres (GNOME Software, KDE Discover) read this to show
+  the application's name, developer and description. Without it Discover falls back to the
+  raw package name and renders "Unknown author" with a placeholder icon.
+
+  Installed to /usr/share/metainfo/ by bundle.linux.{rpm,deb}.files in tauri.conf.json.
+-->
+<component type="desktop-application">
+  <id>com.studio.star</id>
+  <launchable type="desktop-id">star.desktop</launchable>
+
+  <name>Star</name>
+  <summary>A minimalist AI browser</summary>
+
+  <developer id="com.studio">
+    <name>Star Development Team</name>
+  </developer>
+
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Star is a minimalist web browser with a built-in AI assistant. It keeps the chrome out
+      of the way: tab groups, an ad blocker, a media mini-player and a side panel where you
+      can ask questions about the page you are reading.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Side-panel AI assistant with per-device memory</li>
+      <li>Tab groups with colours and names</li>
+      <li>Built-in ad and tracker blocking</li>
+      <li>Media mini-player for tabs that are playing audio</li>
+      <li>Custom themes, accent colours and start-page wallpaper</li>
+    </ul>
+  </description>
+
+  <categories>
+    <category>Network</category>
+    <category>WebBrowser</category>
+  </categories>
+
+  <url type="homepage">https://github.com/Adriii3793/Project-2k26</url>
+  <url type="bugtracker">https://github.com/Adriii3793/Project-2k26/issues</url>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-08-27">
+      <description>
+        <p>First public build.</p>
+      </description>
+    </release>
+  </releases>
+</component>

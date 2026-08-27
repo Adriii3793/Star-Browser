@@ -1,23 +1,37 @@
 <script lang="ts">
     import ButtonArrow from '../ui/ButtonArrow.svelte';
+    import StepShell from './StepShell.svelte';
     import { setup } from '$lib/stores/setup.svelte';
-    import { PRESET_THEMES } from '$lib/stores/theme.svelte';
+    import { PRESET_THEMES, SYSTEM_THEME, theme as themeStore } from '$lib/stores/theme.svelte';
 
     let { onfinish, busy = false }: { onfinish: () => void; busy?: boolean } = $props();
 
     let engine = $derived(setup.engine);
-    let theme = $derived(PRESET_THEMES.find((t) => t.id === setup.data.theme));
+    let theme = $derived(
+        setup.data.theme === 'system'
+            ? SYSTEM_THEME
+            : PRESET_THEMES.find((t) => t.id === setup.data.theme)
+    );
     let themeName = $derived(theme?.name ?? 'Custom');
-    let surface = $derived(theme?.surface ?? setup.data.customSurface ?? '#ffffff');
+    let surface = $derived(
+        setup.data.theme === 'system'
+            ? themeStore.current.surface
+            : (theme?.surface ?? setup.data.customSurface ?? '#ffffff')
+    );
     let initial = $derived((setup.data.name.trim()[0] ?? '?').toUpperCase());
+
+    let brokenLogos = $state<string[]>([]);
+    let logoOk = $derived(!brokenLogos.includes(engine.id));
+    function markLogoBroken() {
+        if (!brokenLogos.includes(engine.id)) brokenLogos = [...brokenLogos, engine.id];
+    }
 </script>
 
-<div class="wrap">
-    <header class="head">
-        <h1>You're all set</h1>
-        <p class="sub">Here's your setup. Change anything before you dive in.</p>
-    </header>
-
+<StepShell
+    title="You're all set"
+    subtitle="Here's your setup. Change anything before you dive in."
+    width={640}
+>
     <div class="grid">
         <section class="preview-card" style="--stagger:0ms">
             <div class="preview-head">
@@ -32,7 +46,13 @@
             >
                 <p class="greet">Good afternoon, {setup.data.name || 'there'}</p>
                 <div class="searchbar">
-                    <span class="badge sm" style="background:{engine.color}">{engine.initial}</span>
+                    <span class="badge sm" class:lettered={!logoOk} style={logoOk ? '' : `background:${engine.color}`}>
+                        {#if logoOk}
+                            <img src={engine.logo} alt="" onerror={markLogoBroken} />
+                        {:else}
+                            {engine.initial}
+                        {/if}
+                    </span>
                     <span class="ph">Search {engine.name}</span>
                 </div>
             </div>
@@ -40,7 +60,13 @@
 
         <div class="side">
             <section class="row-card" style="--stagger:60ms">
-                <span class="badge" style="background:{engine.color}">{engine.initial}</span>
+                <span class="badge" class:lettered={!logoOk} style={logoOk ? '' : `background:${engine.color}`}>
+                    {#if logoOk}
+                        <img src={engine.logo} alt="" onerror={markLogoBroken} />
+                    {:else}
+                        {engine.initial}
+                    {/if}
+                </span>
                 <span class="meta">
                     <span class="label">Search engine</span>
                     <span class="value">{engine.name}</span>
@@ -65,43 +91,14 @@
         </div>
     </div>
 
-    <div class="cta" style="--stagger:180ms">
-        <ButtonArrow label={busy ? 'Saving…' : 'Explore'} disabled={busy} onclick={onfinish} />
-    </div>
-</div>
+    {#snippet footer()}
+        <div class="cta" style="--stagger:180ms">
+            <ButtonArrow label={busy ? 'Saving…' : 'Explore'} disabled={busy} onclick={onfinish} />
+        </div>
+    {/snippet}
+</StepShell>
 
 <style>
-    .wrap {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 32px;
-        width: 100%;
-        max-width: 640px;
-    }
-
-    .head {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
-        text-align: center;
-    }
-
-    h1 {
-        margin: 0;
-        font-size: 28px;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-        color: var(--text);
-    }
-
-    .sub {
-        margin: 0;
-        font-size: 14px;
-        color: var(--text-muted);
-    }
-
     .grid {
         display: grid;
         grid-template-columns: 1.35fr 1fr;
@@ -227,6 +224,19 @@
     .badge {
         border-radius: 12px;
         font-size: 16px;
+        background: var(--field, #f7f1ec);
+        padding: 6px;
+    }
+
+    .badge.lettered {
+        padding: 0;
+    }
+
+    .badge img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 4px;
     }
 
     .badge.sm {
@@ -234,6 +244,16 @@
         height: 20px;
         border-radius: 6px;
         font-size: 10px;
+        padding: 3px;
+        background: var(--field, #f7f1ec);
+    }
+
+    .badge.sm.lettered {
+        padding: 0;
+    }
+
+    .badge.sm img {
+        border-radius: 2px;
     }
 
     .avatar {

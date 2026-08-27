@@ -31,12 +31,14 @@ struct TabShortcut {
 
 const SHORTCUT_TITLE_PREFIX: &str = "@@star-shortcut@@:";
 const URL_TITLE_PREFIX: &str = "@@star-url@@:";
+const AUDIO_TITLE_PREFIX: &str = "@@star-audio@@:";
 const PERMISSION_LABEL: &str = "__permission_overlay__";
 const MENU_LABEL: &str = "__menu_overlay__";
 const OVERLAY_LABEL: &str = "__panel_overlay__";
 
 const OFFLINE_SCRIPT: &str = include_str!("../scripts/offline.js");
 const COSMETIC_SCRIPT: &str = include_str!("../scripts/cosmetic.js");
+const MEDIA_SCRIPT: &str = include_str!("../scripts/media.js");
 const TAB_CORNER_RADIUS: f64 = 12.0;
 
 static COSMETIC_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -44,18 +46,6 @@ static COSMETIC_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 fn cosmetic_enabled() -> bool {
     COSMETIC_ON.load(std::sync::atomic::Ordering::Relaxed)
 }
-const STOP_MEDIA_SCRIPT: &str = r#"(function () {
-    try {
-        var els = Array.prototype.slice.call(document.querySelectorAll('video,audio'));
-        els.forEach(function (el) {
-            var stream = el.srcObject;
-            if (stream && typeof stream.getTracks === 'function') {
-            stream.getTracks().forEach(function (t) { t.stop(); });
-            }
-        });
-    } catch (e) {}
-})();"#;
-
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionRequested {
@@ -110,6 +100,9 @@ fn file_name_for(path: &str, uri: &str) -> String {
         })
         .unwrap_or_else(|| "download".to_string())
 }
+
+#[cfg(not(windows))]
+use crate::commands::files::unique_download_path;
 
 #[cfg(windows)]
 pub use win_permissions::PermissionRegistry;
@@ -185,7 +178,9 @@ const SHORTCUT_FORWARD_SCRIPT: &str = r#"(function () {
     if (e.key === 'F11' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) return 'fullscreen';
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
     if (e.shiftKey) {
-      return (e.key === 'Delete' || e.key === 'Backspace') ? 'cleardata' : null;
+      if (e.key === 'Delete' || e.key === 'Backspace') return 'cleardata';
+      if (e.key.toLowerCase() === 's') return 'chat';
+      return null;
     }
     var key = e.key.toLowerCase();
     if (e.key === '=' || e.key === '+') return 'zoomin';
@@ -367,9 +362,14 @@ pub async fn open_tab_webview(
     let title_tab_id = tab_id.clone();
     let shortcut_app = app.clone();
     let shortcut_tab_id = tab_id.clone();
+    #[cfg(not(windows))]
+    let audio_app = app.clone();
+    #[cfg(not(windows))]
+    let audio_tab_id = tab_id.clone();
     let last_urls = state.last_tab_urls.clone();    let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
         .zoom_hotkeys_enabled(false)
         .initialization_script_for_all_frames(SHORTCUT_FORWARD_SCRIPT)
+        .initialization_script_for_all_frames(MEDIA_SCRIPT)
         .initialization_script(CONTEXT_MENU_SCRIPT)
         .initialization_script(OFFLINE_SCRIPT);
     if cosmetic_enabled() {
@@ -409,6 +409,23 @@ pub async fn open_tab_webview(
                         action: action.to_string(),
                     },
                 );
+            } else if let Some(payload) = title.strip_prefix(AUDIO_TITLE_PREFIX) {
+                #[cfg(not(windows))]
+                {
+                    let mut parts = payload.split(',');
+                    let audible = parts.next() == Some("1");
+                    let muted = parts.next() == Some("1");
+                    let _ = audio_app.emit(
+                        "tab-audio-changed",
+                        TabAudioChanged {
+                            tab_id: audio_tab_id.clone(),
+                            audible,
+                            muted,
+                        },
+                    );
+                }
+                #[cfg(windows)]
+                let _ = payload;
             } else {
                 let clean_title = title.trim();
                 if !clean_title.is_empty() {
@@ -422,6 +439,57 @@ pub async fn open_tab_webview(
                 }
             }
         });
+
+    #[cfg(not(windows))]
+    let builder = {
+        let download_app = app.clone();
+        let download_tab_id = tab_id.clone();
+        builder.on_download(move |_webview, event| {
+            match event {
+                tauri::webview::DownloadEvent::Requested { url, destination } => {
+                    let suggested = destination.to_string_lossy().into_owned();
+                    let file_name = file_name_for(&suggested, url.as_str());
+                    let target = unique_download_path(&download_app, &file_name);
+                    let file_name = target
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(str::to_owned)
+                        .unwrap_or(file_name);
+                    *destination = target;
+
+                    if let Err(e) = download_app.emit(
+                        "download-started",
+                        DownloadStarted {
+                            tab_id: download_tab_id.clone(),
+                            file_name,
+                        },
+                    ) {
+                        eprintln!("[star] downloads: failed to emit download-started: {e:?}");
+                    }
+                }
+                tauri::webview::DownloadEvent::Finished { url, path, success } => {
+                    let resolved = path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let file_name = file_name_for(&resolved, url.as_str());
+
+                    if let Err(e) = download_app.emit(
+                        "download-finished",
+                        DownloadFinished {
+                            tab_id: download_tab_id.clone(),
+                            file_name,
+                            success,
+                        },
+                    ) {
+                        eprintln!("[star] downloads: failed to emit download-finished: {e:?}");
+                    }
+                }
+                _ => {}
+            }
+            true
+        })
+    };
 
     #[cfg(target_os = "macos")]
     let builder = builder.user_agent(
@@ -543,7 +611,9 @@ pub async fn close_tab_webview(state: State<'_, AppState>, tab_id: String) -> Re
     let label = label_for(&tab_id);
     state.last_tab_urls.lock().unwrap().remove(&tab_id);
     if let Some(webview) = state.views.lock().unwrap().remove(&label) {
-        webview.eval(STOP_MEDIA_SCRIPT).ok();
+        webview
+            .eval("(function(){var m=window.__starMedia;if(m)m.stop();})();")
+            .ok();
         #[cfg(windows)]
         win_permissions::force_close(&webview);
         let _ = webview.close();
@@ -613,11 +683,13 @@ pub async fn warm_overlay_webview(
     let builder =
         WebviewBuilder::new(OVERLAY_LABEL, WebviewUrl::App("overlay".into())).transparent(true);
 
-    let webview = main.add_child(
+    let Ok(webview) = main.add_child(
         builder,
         LogicalPosition::new(x, y),
         LogicalSize::new(width, height),
-    )?;
+    ) else {
+        return Ok(());
+    };
     webview.hide()?;
 
     state
@@ -654,11 +726,22 @@ pub async fn open_overlay_webview(
     let builder =
         WebviewBuilder::new(OVERLAY_LABEL, WebviewUrl::App("overlay".into())).transparent(true);
 
-    let webview = main.add_child(
+    let webview = match main.add_child(
         builder,
         LogicalPosition::new(x, y),
         LogicalSize::new(width, height),
-    )?;
+    ) {
+        Ok(webview) => webview,
+        Err(e) => {
+            let existing = state.views.lock().unwrap().get(OVERLAY_LABEL).cloned();
+            let Some(existing) = existing else { return Err(e.into()) };
+            existing.set_position(LogicalPosition::new(x, y))?;
+            existing.set_size(LogicalSize::new(width, height))?;
+            existing.show()?;
+            let _ = existing.set_focus();
+            return Ok(());
+        }
+    };
     webview.show()?;
     let _ = webview.set_focus();
 
@@ -759,16 +842,6 @@ pub async fn tab_print(state: State<'_, AppState>, tab_id: String) -> Result<(),
     Ok(())
 }
 
-const MEDIA_TOGGLE_SCRIPT: &str = r#"(function () {
-  var els = Array.prototype.slice.call(document.querySelectorAll('video,audio'));
-  var playing = els.filter(function (m) { return !m.paused; });
-  if (playing.length) {
-    playing.forEach(function (m) { m.pause(); });
-  } else if (els.length) {
-    els[0].play().catch(function () {});
-  }
-})();"#;
-
 pub fn grant_main_window_media(app: &AppHandle) {
     #[cfg(windows)]
     {
@@ -788,21 +861,29 @@ pub async fn set_adblock(enabled: bool) -> Result<(), AppError> {
     Ok(())
 }
 
-#[tauri::command]
-pub async fn tab_media_toggle(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
-    let label = label_for(&tab_id);
-    if let Some(webview) = state.views.lock().unwrap().get(&label) {
-        webview.eval(MEDIA_TOGGLE_SCRIPT)?;
+fn eval_media(
+    state: &State<'_, AppState>,
+    tab_id: &str,
+    call: &str,
+) -> Result<(), AppError> {
+    let label = label_for(tab_id);
+    let webview = state.views.lock().unwrap().get(&label).cloned();
+    if let Some(webview) = webview {
+        webview.eval(&format!(
+            "(function(){{var m=window.__starMedia;if(m)m.{call};}})();"
+        ))?;
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn tab_media_toggle(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
+    eval_media(&state, &tab_id, "toggle()")
+}
+
 #[tauri::command]
 pub async fn tab_stop_media(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
-    let label = label_for(&tab_id);
-    if let Some(webview) = state.views.lock().unwrap().get(&label) {
-        webview.eval(STOP_MEDIA_SCRIPT)?;
-    }
-    Ok(())
+    eval_media(&state, &tab_id, "stop()")
 }
 
 #[tauri::command]
@@ -811,17 +892,20 @@ pub async fn set_tab_muted(
     tab_id: String,
     muted: bool,
 ) -> Result<(), AppError> {
-    let label = label_for(&tab_id);
-    let webview = state.views.lock().unwrap().get(&label).cloned();
-    if let Some(webview) = webview {
-        #[cfg(windows)]
-        let _ = webview.with_webview(move |platform| {
-            win_permissions::apply_muted(&platform, muted);
-        });
-        #[cfg(not(windows))]
-        let _ = (webview, muted);
+    #[cfg(windows)]
+    {
+        let label = label_for(&tab_id);
+        let webview = state.views.lock().unwrap().get(&label).cloned();
+        if let Some(webview) = webview {
+            let _ = webview.with_webview(move |platform| {
+                win_permissions::apply_muted(&platform, muted);
+            });
+        }
+        Ok(())
     }
-    Ok(())
+
+    #[cfg(not(windows))]
+    eval_media(&state, &tab_id, &format!("setMuted({muted})"))
 }
 
 #[tauri::command]
@@ -1161,7 +1245,7 @@ mod win_permissions {
 
             attach_offline_page(&core);
             attach_audio_tracking(&app, tab_id.clone(), &core);
-            attach_ad_blocking(&core);
+            attach_ad_blocking(&app, tab_id.clone(), &core);
             attach_download_tracking(&app, tab_id.clone(), &core);
         });
     }
@@ -1173,242 +1257,219 @@ mod win_permissions {
     }
 
     const AD_HOSTS: &[&str] = &[
-        "doubleclick.net",
-        "googlesyndication.com",
-        "googleadservices.com",
-        "googletagservices.com",
-        "google-analytics.com",
-        "googletagmanager.com",
-        "amazon-adsystem.com",
-        "adnxs.com",
-        "adnxs-simple.com",
-        "criteo.com",
-        "criteo.net",
-        "taboola.com",
-        "taboolasyndication.com",
-        "outbrain.com",
-        "zemanta.com",
-        "pubmatic.com",
-        "rubiconproject.com",
-        "openx.net",
-        "adsafeprotected.com",
-        "moatads.com",
-        "scorecardresearch.com",
-        "adsrvr.org",
-        "smartadserver.com",
-        "yieldmo.com",
-        "casalemedia.com",
-        "indexww.com",
-        "sharethrough.com",
-        "teads.tv",
-        "3lift.com",
-        "bidswitch.net",
-        "sovrn.com",
-        "lijit.com",
-        "media.net",
-        "adform.net",
-        "adcolony.com",
-        "applovin.com",
-        "unityads.unity3d.com",
-        "inmobi.com",
-        "mopub.com",
-        "chartbeat.com",
-        "quantserve.com",
-        "quantcount.com",
-        "krxd.net",
-        "bluekai.com",
-        "demdex.net",
-        "everesttech.net",
-        "omtrdc.net",
-        "branch.io",
-        "segment.io",
-        "segment.com",
-        "amplitude.com",
-        "mixpanel.com",
-        "hotjar.com",
-        "fullstory.com",
-        "mouseflow.com",
-        "clarity.ms",
-        "newrelic.com",
-        "nr-data.net",
-        "optimizely.com",
-        "onesignal.com",
-        "pushwoosh.com",
-        "adroll.com",
-        "servedbyadbutler.com",
-        "revcontent.com",
-        "mgid.com",
-        "propellerads.com",
-        "popads.net",
-        "poperblocker.com",
-        "exoclick.com",
-        "juicyads.com",
-        "trafficjunky.net",
-        "zedo.com",
-        "adhigh.net",
-        "adskeeper.com",
-        "yieldlab.net",
-        "improvedigital.com",
-        "districtm.io",
-        "gumgum.com",
-        "spotxchange.com",
-        "springserve.com",
-        "innovid.com",
-        "flashtalking.com",
-        "sizmek.com",
-        "serving-sys.com",
-        "advertising.com",
-        "adtechus.com",
-        "bidr.io",
-        "agkn.com",
-        "rlcdn.com",
-        "crwdcntrl.net",
-        "tapad.com",
-        "id5-sync.com",
-        "pippio.com",
-        "ads.yahoo.com",
-        "ads.linkedin.com",
-        "analytics.tiktok.com",
-        "ads-twitter.com",
-        "ads.pinterest.com",
-        "mc.yandex.ru",
-        "mc.yandex.com",
-        "an.yandex.ru",
-        "yandexadexchange.net",
-        "adfox.ru",
-        "adriver.ru",
-        "counter.yadro.ru",
-        "top-fwz1.mail.ru",
-        "rs.mail.ru",
-        "ad.mail.ru",
-        "top100.rambler.ru",
-        "connect.facebook.net",
-        "matomo.cloud",
-        "piwik.pro",
-        "statcounter.com",
-        "histats.com",
-        "sitemeter.com",
-        "addthis.com",
-        "sharethis.com",
-        "crazyegg.com",
-        "luckyorange.com",
-        "inspectlet.com",
-        "smartlook.com",
-        "heapanalytics.com",
-        "kissmetrics.com",
-        "keen.io",
-        "loggly.com",
-        "bugsnag.com",
-        "sentry-cdn.com",
-        "trackjs.com",
-        "bugsnag.com",
-        "d2wy8f7a9ursnm.cloudfront.net",
-        "clicktale.net",
-        "tealiumiq.com",
-        "ensighten.com",
-        "adobedtm.com",
-        "2o7.net",
-        "coremetrics.com",
-        "webtrends.com",
-        "comscore.com",
-        "nielsen.com",
-        "imrworldwide.com",
-        "effectivemeasure.net",
-        "gemius.pl",
-        "wt-safetag.com",
-        "yieldoptimizer.com",
-        "contextweb.com",
-        "adtelligent.com",
-        "betweendigital.com",
-        "buysellads.com",
-        "carbonads.com",
-        "ezoic.net",
-        "ezojs.com",
-        "playwire.com",
-        "primis.tech",
-        "vidoomy.com",
-        "onetag-sys.com",
-        "smaato.net",
-        "tremorhub.com",
-        "yieldmo.net",
-        "amazonaax.com",
-        "assoc-amazon.com",
-        "criteo.com",
-        "bidswitch.net",
-        "magnite.com",
-        "spotxchange.com",
-        "rtbhouse.com",
-        "smartadserver.com",
-        "adition.com",
-        "adscale.de",
-        "mediaimpact.de",
-        "gg.gg",
-        "tiktok.com",
-        "tiktokcdn.com",
-        "ads.tiktok.com",
-        "business-api.tiktok.com",
-        "redditinc.com",
-        "ads.reddit.com",
-        "events.redditmedia.com",
-        "snap-adkit.com",
-        "ads.linkedin.com",
-        "adx.linkedin.com",
-        "ads-twitter.com",
-        "static.ads-twitter.com",
-        "ads.pinterest.com",
-        "logs.pinterest.com",
-        "tr.snapchat.com",
-        "app-measurement.com",
-        "firebaseinstallations.googleapis.com",
-        "doubleverify.com",
-        "dvtps.com",
-        "adsafeprotected.com",
-        "moatpixel.com",
-        "iasds01.com",
-        "screencore.io",
-        "openweb.com",
-        "spot.im",
-        "arc.io",
-        "permutive.com",
-        "permutive.app",
         "1dmp.io",
-        "id5-sync.com",
-        "uidapi.com",
-        "adhigh.net",
-        "yieldmo.com",
-        "sonobi.com",
-        "gamoshi.com",
-        "smilewanted.com",
-        "improvedigital.com",
-        "videoheroes.tv",
-        "connatix.com",
-        "cdn.connatix.com",
-        "jwplayer.com",
-        "aniview.com",
-        "mediavine.com",
-        "raptive.com",
-        "adthrive.com",
-        "monumetric.com",
-        "sheknows.com",
-        "playground.xyz",
-        "freestar.com",
-        "freestar.io",
+        "2o7.net",
+        "3lift.com",
+        "ad.mail.ru",
         "ad.plus",
-        "galaksion.com",
-        "hilltopads.net",
         "adcash.com",
-        "clickadu.com",
-        "onclickalgo.com",
-        "onclckpro.com",
-        "onclickperformance.com",
-        "push-mania.com",
-        "propellerclick.com",
-        "propelleradsystem.com",
+        "adcolony.com",
+        "addthis.com",
+        "adform.net",
+        "adfox.ru",
+        "adhigh.net",
+        "adition.com",
+        "adnxs-simple.com",
+        "adnxs.com",
+        "adobedtm.com",
+        "adriver.ru",
+        "adroll.com",
+        "ads-twitter.com",
+        "ads.linkedin.com",
+        "ads.pinterest.com",
+        "ads.reddit.com",
+        "ads.tiktok.com",
+        "ads.yahoo.com",
+        "adsafeprotected.com",
+        "adscale.de",
+        "adskeeper.com",
+        "adsrvr.org",
         "adsterra.com",
         "adsterratech.com",
+        "adtechus.com",
+        "adtelligent.com",
+        "adthrive.com",
+        "advertising.com",
+        "adx.linkedin.com",
+        "agkn.com",
+        "amazon-adsystem.com",
+        "amazonaax.com",
+        "amplitude.com",
+        "an.yandex.ru",
+        "analytics.tiktok.com",
+        "aniview.com",
+        "app-measurement.com",
+        "applovin.com",
+        "arc.io",
+        "assoc-amazon.com",
+        "betweendigital.com",
+        "bidr.io",
+        "bidswitch.net",
+        "bluekai.com",
+        "branch.io",
+        "bugsnag.com",
+        "buysellads.com",
+        "carbonads.com",
+        "casalemedia.com",
         "cashtrafic.com",
+        "cdn.connatix.com",
+        "chartbeat.com",
+        "clarity.ms",
+        "clickadu.com",
+        "clicktale.net",
+        "comscore.com",
+        "connatix.com",
+        "connect.facebook.net",
+        "contextweb.com",
+        "coremetrics.com",
+        "counter.yadro.ru",
+        "crazyegg.com",
+        "criteo.com",
+        "criteo.net",
+        "crwdcntrl.net",
+        "demdex.net",
+        "districtm.io",
+        "doubleclick.net",
+        "doubleverify.com",
+        "dvtps.com",
+        "effectivemeasure.net",
+        "ensighten.com",
+        "events.redditmedia.com",
+        "everesttech.net",
+        "exoclick.com",
+        "ezoic.net",
+        "ezojs.com",
+        "flashtalking.com",
+        "freestar.com",
+        "freestar.io",
+        "fullstory.com",
+        "galaksion.com",
+        "gamoshi.com",
+        "gemius.pl",
+        "google-analytics.com",
+        "googleadservices.com",
+        "googlesyndication.com",
+        "googletagmanager.com",
+        "googletagservices.com",
+        "gumgum.com",
+        "heapanalytics.com",
+        "hilltopads.net",
+        "histats.com",
+        "hotjar.com",
+        "iasds01.com",
+        "id5-sync.com",
+        "improvedigital.com",
+        "imrworldwide.com",
+        "indexww.com",
+        "inmobi.com",
+        "innovid.com",
+        "inspectlet.com",
+        "juicyads.com",
+        "keen.io",
+        "kissmetrics.com",
+        "krxd.net",
+        "lijit.com",
+        "loggly.com",
+        "logs.pinterest.com",
+        "luckyorange.com",
+        "magnite.com",
+        "matomo.cloud",
+        "mc.yandex.com",
+        "mc.yandex.ru",
+        "media.net",
+        "mediaimpact.de",
+        "mediavine.com",
+        "mgid.com",
+        "mixpanel.com",
+        "moatads.com",
+        "moatpixel.com",
+        "monumetric.com",
+        "mopub.com",
+        "mouseflow.com",
+        "newrelic.com",
+        "nielsen.com",
+        "nr-data.net",
+        "omtrdc.net",
+        "onclckpro.com",
+        "onclickalgo.com",
+        "onclickperformance.com",
+        "onesignal.com",
+        "onetag-sys.com",
+        "openx.net",
+        "optimizely.com",
+        "outbrain.com",
+        "permutive.app",
+        "permutive.com",
+        "pippio.com",
+        "piwik.pro",
+        "playground.xyz",
+        "playwire.com",
+        "popads.net",
+        "poperblocker.com",
+        "primis.tech",
+        "propellerads.com",
+        "propelleradsystem.com",
+        "propellerclick.com",
+        "pubmatic.com",
+        "push-mania.com",
+        "pushwoosh.com",
+        "quantcount.com",
+        "quantserve.com",
+        "raptive.com",
+        "revcontent.com",
+        "rlcdn.com",
+        "rs.mail.ru",
+        "rtbhouse.com",
+        "rubiconproject.com",
+        "scorecardresearch.com",
+        "screencore.io",
+        "segment.com",
+        "segment.io",
+        "sentry-cdn.com",
+        "servedbyadbutler.com",
+        "serving-sys.com",
+        "sharethis.com",
+        "sharethrough.com",
+        "sitemeter.com",
+        "sizmek.com",
+        "smaato.net",
+        "smartadserver.com",
+        "smartlook.com",
+        "smilewanted.com",
+        "snap-adkit.com",
+        "sonobi.com",
+        "sovrn.com",
+        "spot.im",
+        "spotxchange.com",
+        "springserve.com",
+        "statcounter.com",
+        "static.ads-twitter.com",
+        "taboola.com",
+        "taboolasyndication.com",
+        "tapad.com",
+        "teads.tv",
+        "tealiumiq.com",
+        "top-fwz1.mail.ru",
+        "top100.rambler.ru",
+        "tr.snapchat.com",
+        "trackjs.com",
+        "trafficjunky.net",
         "trafficstars.com",
+        "tremorhub.com",
         "tsyndicate.com",
+        "uidapi.com",
+        "unityads.unity3d.com",
+        "videoheroes.tv",
+        "vidoomy.com",
+        "webtrends.com",
+        "wt-safetag.com",
+        "yandexadexchange.net",
+        "yieldlab.net",
+        "yieldmo.com",
+        "yieldmo.net",
+        "yieldoptimizer.com",
+        "zedo.com",
+        "zemanta.com",
     ];
 
     const AD_PATH_MARKERS: &[&str] = &[
@@ -1484,6 +1545,34 @@ mod win_permissions {
         })
     }
 
+    const MULTI_PART_SUFFIXES: &[&str] = &[
+        "co.uk", "org.uk", "ac.uk", "gov.uk", "co.jp", "ne.jp", "or.jp", "ac.jp", "com.au",
+        "net.au", "org.au", "com.br", "com.mx", "com.ar", "com.tr", "com.cn", "com.tw",
+        "co.kr", "co.in", "co.za", "co.nz", "com.sg", "com.hk", "com.pl", "com.ua",
+    ];
+
+    fn base_domain(host: &str) -> &str {
+        let labels: Vec<&str> = host.split('.').collect();
+        if labels.len() <= 2 {
+            return host;
+        }
+        let last_two = &host[host.len() - (labels[labels.len() - 2].len() + 1 + labels[labels.len() - 1].len())..];
+        let take = if MULTI_PART_SUFFIXES.contains(&last_two) { 3 } else { 2 };
+        if labels.len() <= take {
+            return host;
+        }
+        let keep: usize = labels[labels.len() - take..]
+            .iter()
+            .map(|l| l.len() + 1)
+            .sum::<usize>()
+            - 1;
+        &host[host.len() - keep..]
+    }
+
+    fn same_site(a: &str, b: &str) -> bool {
+        base_domain(a) == base_domain(b)
+    }
+
     fn path_blocked(uri: &str) -> bool {
         let lower = uri.to_ascii_lowercase();
         let after_host = match lower.find("://") {
@@ -1499,17 +1588,22 @@ mod win_permissions {
             .any(|marker| after_host.contains(marker))
     }
 
-    fn is_ad_url(uri: &str) -> bool {
+    fn is_ad_url(uri: &str, page_host: Option<&str>) -> bool {
         if !uri.starts_with("http") {
             return false;
         }
-        match host_of(uri) {
-            Some(host) => host_blocked(&host) || path_blocked(uri),
-            None => false,
+        let Some(host) = host_of(uri) else {
+            return false;
+        };
+        if let Some(page) = page_host {
+            if same_site(&host, page) {
+                return false;
+            }
         }
+        host_blocked(&host) || path_blocked(uri)
     }
 
-    fn attach_ad_blocking(core: &ICoreWebView2) {
+    fn attach_ad_blocking(app: &AppHandle, tab_id: String, core: &ICoreWebView2) {
         let Ok(core2) = core.cast::<ICoreWebView2_2>() else {
             return;
         };
@@ -1522,6 +1616,7 @@ mod win_permissions {
                 COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
             )
         };
+        let last_urls = app.state::<crate::state::AppState>().last_tab_urls.clone();
         let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
             if !ADBLOCK.load(Ordering::Relaxed) {
                 return Ok(());
@@ -1541,7 +1636,12 @@ mod win_permissions {
                 unsafe { request.Uri(&mut uri)? };
                 take_pwstr(uri)
             };
-            if !is_ad_url(&uri) {
+            let page_host = last_urls
+                .lock()
+                .ok()
+                .and_then(|urls| urls.get(&tab_id).cloned())
+                .and_then(|page| host_of(&page));
+            if !is_ad_url(&uri, page_host.as_deref()) {
                 return Ok(());
             }
             if let Ok(response) = unsafe {
@@ -1867,8 +1967,8 @@ window.addEventListener('online', retry);
             }
 
             let cleanup = ghost.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(30));
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 let close_target = cleanup.clone();
                 let _ = cleanup.run_on_main_thread(move || {
                     force_close(&close_target);
@@ -2079,6 +2179,74 @@ window.addEventListener('online', retry);
                 kind_name(COREWEBVIEW2_PERMISSION_KIND_UNKNOWN_PERMISSION),
                 None
             );
+        }
+
+        #[test]
+        fn ad_host_list_has_no_duplicates() {
+            let mut seen = std::collections::HashSet::new();
+            for host in AD_HOSTS {
+                assert!(seen.insert(*host), "{host} appears twice in AD_HOSTS");
+            }
+        }
+
+        #[test]
+        fn base_domain_finds_the_registrable_name() {
+            assert_eq!(base_domain("example.com"), "example.com");
+            assert_eq!(base_domain("cdn.images.example.com"), "example.com");
+            assert_eq!(base_domain("www.bbc.co.uk"), "bbc.co.uk");
+            assert_eq!(base_domain("a.b.c.example.co.jp"), "example.co.jp");
+            assert_eq!(base_domain("localhost"), "localhost");
+        }
+
+        #[test]
+        fn first_party_requests_are_never_blocked() {
+            for (page, resource) in [
+                ("www.tiktok.com", "https://www.tiktok.com/api/item/list"),
+                ("mixpanel.com", "https://cdn.mixpanel.com/app.js"),
+                ("www.hotjar.com", "https://static.hotjar.com/c/hotjar.js"),
+                ("news.example.com", "https://img.example.com/banners/hero.jpg"),
+            ] {
+                assert!(
+                    !is_ad_url(resource, Some(page)),
+                    "{resource} should be allowed as first-party on {page}"
+                );
+            }
+        }
+
+        #[test]
+        fn third_party_trackers_are_still_blocked() {
+            for resource in [
+                "https://www.google-analytics.com/collect?v=1",
+                "https://securepubads.g.doubleclick.net/tag/js/gpt.js",
+                "https://static.hotjar.com/c/hotjar.js",
+                "https://cdn.taboola.com/libtrc/loader.js",
+            ] {
+                assert!(
+                    is_ad_url(resource, Some("news.example.com")),
+                    "{resource} should be blocked as third-party"
+                );
+            }
+        }
+
+        #[test]
+        fn ordinary_third_party_assets_are_left_alone() {
+            for resource in [
+                "https://cdn.jwplayer.com/libraries/abc.js",
+                "https://fonts.gstatic.com/s/inter.woff2",
+                "https://p16-sign.tiktokcdn-us.com/video.mp4",
+                "https://unpkg.com/react@18/umd/react.production.min.js",
+            ] {
+                assert!(
+                    !is_ad_url(resource, Some("news.example.com")),
+                    "{resource} is a normal asset and must not be blocked"
+                );
+            }
+        }
+
+        #[test]
+        fn non_http_schemes_are_ignored() {
+            assert!(!is_ad_url("data:image/png;base64,AAAA", Some("example.com")));
+            assert!(!is_ad_url("blob:https://example.com/abc", Some("example.com")));
         }
     }
 }

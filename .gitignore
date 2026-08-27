@@ -1,0 +1,22 @@
+# Secrets — .env holds the OpenRouter API key, never commit it
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+build/
+.svelte-kit/
+dist/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*

@@ -6,106 +6,99 @@
         type = 'button',
         disabled = false,
         onclick,
-        children,
+        children
     }: {
-        label?: string
-        type?: 'button' | 'submit'
-        disabled?: boolean
-        onclick?: () => void
-        children?: Snippet
-    } =$props()
-    
+        label?: string;
+        type?: 'button' | 'submit';
+        disabled?: boolean;
+        onclick?: () => void;
+        children?: Snippet;
+    } = $props();
 </script>
 
-<button class="pushable" { type } { disabled } {onclick} >
-    <span class = "shadow"></span>
-    <span class = "edge"></span>
-    <span class = "front">
+<button class="pushable" {type} {disabled} {onclick}>
+    <span class="edge"></span>
+    <span class="front">
         {@render children?.()}
         {#if !children}{label}{/if}
     </span>
 </button>
+
 <style>
     .pushable {
         position: relative;
-        background: transparent;
-        padding: 0;
+        display: inline-block;
+        padding: 0 0 4px;
         border: none;
+        border-radius: 14px;
+        background: transparent;
         cursor: pointer;
         outline-offset: 4px;
-        transition: filter 250ms;
-        -webkit-tap-highlight-color: #00000000;
-
-    }
-    .pushable:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .shadow {
-        position: absolute;
-        top: 0;
-        left: 0;
-        height:100%;
-        width:100%;
-        background: #00000066;
-        border-radius: 12px;
-        filter: blur(4px);
-        will-change: transform;
-        transform: translateY(2px);
-        transition: transform 600ms cubic-bezier(.3, .7, .4, 1);
-
+        -webkit-tap-highlight-color: transparent;
     }
 
     .edge {
         position: absolute;
-        top: 0;
-        left: 0;
-        height:100%;
-        width:100%;
-        border-radius: 12px;
-        background: color-mix(in srgb, var(--accent, #37373f) 60%, black);
+        inset: 0;
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--accent, #80a4d4) 62%, #000);
+        box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--accent, #80a4d4) 75%, transparent);
+        transition: box-shadow 0.2s ease;
     }
-    .front {
-        display: block;
-        position: relative;
-        border-radius: 12px;
-        background: var(--accent, #37373f);
-        padding: 14px 32px;
-        color: var(--accent-contrast, #1c1917);
-        font-weight: 600;
-        text-transform:uppercase;
-        letter-spacing: 1.5px;
-        font-size: 0.95rem;
-        transform: translateY(-4px);
-        transition: transform 600ms cubic-bezier(.3, .7, .4, 1);
-    }
-    .pushable:hover:not(:disabled) {
-        filter: brightness(110%);
 
+    .front {
+        position: relative;
+        display: block;
+        min-width: 168px;
+        padding: 13px 30px;
+        border-radius: 14px;
+        background: var(--accent, #80a4d4);
+        color: var(--accent-contrast, #1c1917);
+        font: inherit;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1);
     }
+
     .pushable:hover:not(:disabled) .front {
-        transform: translateY(-6px);
-        transition: transform 250ms cubic-bezier(.3, .7, .4, 1.5);
+        transform: translateY(-2px);
+    }
+
+    .pushable:hover:not(:disabled) .edge {
+        box-shadow: 0 12px 24px -8px color-mix(in srgb, var(--accent, #80a4d4) 80%, transparent);
     }
 
     .pushable:active:not(:disabled) .front {
-        transform: translateY(-2px);
-        transition: transform 34ms;
-
-
-    }
-
-    .pushable:hover:not(:disabled) .shadow {
         transform: translateY(4px);
-        transition: transform 250ms cubic-bezier(.3, .7, .4, 1.5);
+        transition-duration: 40ms;
     }
-    .pushable:active:not(:disabled) .shadow {
-        transform: translateY(1px);
-        transition:transform 34ms;
+
+    .pushable:disabled {
+        cursor: not-allowed;
     }
-    .pushable:focus:not(:focus-visible) {
-        outline: none;
+
+    .pushable:disabled .front {
+        background: var(--field-strong, #efe6de);
+        color: var(--text-muted, #ac8064);
     }
-    
+
+    .pushable:disabled .edge {
+        background: var(--border-strong);
+        box-shadow: none;
+    }
+
+    .pushable:focus-visible {
+        outline: 2px solid var(--accent, #80a4d4);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .front,
+        .edge {
+            transition: none;
+        }
+        .pushable:hover:not(:disabled) .front {
+            transform: none;
+        }
+    }
 </style>

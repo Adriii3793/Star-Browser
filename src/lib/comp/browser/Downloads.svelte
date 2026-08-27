@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { emit, listen } from '@tauri-apps/api/event';
     import type { DownloadEntry } from '$lib/stores/downloads.svelte';
+    import CloseButton from '../ui/CloseButton.svelte';
 
     let { onclose }: { onclose: () => void } = $props();
 
@@ -35,9 +36,7 @@
             {#if entries.length}
                 <button class="ghost" type="button" onclick={() => emit('overlay-downloads-clear', {})}>Clear all</button>
             {/if}
-            <button class="close" type="button" aria-label="Close" onclick={onclose}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
+            <CloseButton label="Close downloads" onclick={onclose} />
         </div>
     </header>
 
@@ -132,20 +131,7 @@
     }
     .ghost:hover { background: var(--tab-hover); }
 
-    .close {
-        display: grid;
-        place-items: center;
-        width: 28px;
-        height: 28px;
-        padding: 0;
-        border: none;
-        border-radius: 8px;
-        background: transparent;
-        color: var(--text-muted);
-        cursor: pointer;
-    }
-    .close:hover { background: var(--hover); color: var(--text); }
-    .close svg, .remove svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+    .remove svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
 
     .hint {
         margin: 0 0 12px;

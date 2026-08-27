@@ -12,19 +12,3 @@ export function saveSetup(data: SetupData): Promise<void> {
 export function loadSetup(): Promise<SetupData | null> {
     return call('load_setup');
 }
-
-export function resetSetup(): Promise<void> {
-    return call('reset_setup');
-}
-
-export function dataDir(): Promise<string> {
-    return call('data_dir');
-}
-
-export function openDataDir(): Promise<void> {
-    return call('open_data_dir');
-}
-
-export function setDefaultBrowser(): Promise<boolean> {
-    return call('set_default_browser');
-}

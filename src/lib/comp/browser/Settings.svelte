@@ -1,32 +1,96 @@
 <script lang="ts">
     import { prefs } from '$lib/stores/prefs.svelte';
     import { emit } from '@tauri-apps/api/event';
-    import { PRESET_THEMES, SYSTEM_THEME, theme } from '$lib/stores/theme.svelte';
+    import {
+        PRESET_THEMES,
+        SYSTEM_THEME,
+        theme,
+        applyThemeVars,
+        luminance,
+        mix
+    } from '$lib/stores/theme.svelte';
     import type { Theme } from '$lib/stores/theme.svelte';
     import { SEARCH_ENGINES } from '$lib/stores/setup.svelte';
     import { AI_PROVIDERS } from '$lib/stores/prefs.svelte';
+    import CloseButton from '../ui/CloseButton.svelte';
     let {
         onclose,
         themeId = theme.preference,
         searchEngine = 'google',
-        background = null
+        background = null,
+        customBg = null,
+        customSurface = null,
+        customAccent = null
     }: {
         onclose: () => void;
         themeId?: string;
         searchEngine?: string;
         background?: string | null;
+        customBg?: string | null;
+        customSurface?: string | null;
+        customAccent?: string | null;
     } = $props();
 
-    const themes = [SYSTEM_THEME, ...PRESET_THEMES];
+    const DEFAULT_CUSTOM_BG = '#faf7f7';
+    const DEFAULT_CUSTOM_ACCENT = '#80a4d4';
+    const HEX = /^#[0-9a-fA-F]{6}$/;
+
+    function surfaceFor(bg: string): string {
+        return mix(bg, '#ffffff', luminance(bg) < 0.5 ? 0.07 : 0.6);
+    }
+
+    let customOverride = $state<{ bg: string; surface: string; accent: string } | null>(null);
+    let custom = $derived(
+        customOverride ?? {
+            bg: customBg ?? DEFAULT_CUSTOM_BG,
+            surface: customSurface ?? surfaceFor(customBg ?? DEFAULT_CUSTOM_BG),
+            accent: customAccent ?? DEFAULT_CUSTOM_ACCENT
+        }
+    );
+
+    let customTheme = $derived<Theme>({
+        id: 'custom',
+        name: 'Custom',
+        bg: custom.bg,
+        surface: custom.surface,
+        accent: custom.accent,
+        image: background
+    });
+    let themes = $derived<Theme[]>([SYSTEM_THEME, ...PRESET_THEMES, customTheme]);
+
     let themeOverride = $state<string | null>(null);
     let engineOverride = $state<string | null>(null);
     let activeThemeId = $derived(themeOverride ?? themeId);
     let selectedSearchEngine = $derived(engineOverride ?? searchEngine);
 
     function selectTheme(t: Theme) {
+        if (t.id === 'custom') {
+            applyCustom(custom.bg, custom.accent);
+            return;
+        }
         themeOverride = t.id;
         theme.set(t.id);
         void emit('settings-changed', { theme: t.id });
+    }
+
+    function applyCustom(bg: string, accent: string) {
+        const surface = surfaceFor(bg);
+        customOverride = { bg, surface, accent };
+        themeOverride = 'custom';
+        applyThemeVars({ id: 'custom', name: 'Custom', bg, surface, accent, image: background });
+        void emit('settings-changed', {
+            theme: 'custom',
+            customBg: bg,
+            customSurface: surface,
+            customAccent: accent
+        });
+    }
+
+    function applyHex(value: string, which: 'bg' | 'accent') {
+        const next = value.startsWith('#') ? value : `#${value}`;
+        if (!HEX.test(next)) return;
+        if (which === 'bg') applyCustom(next, custom.accent);
+        else applyCustom(custom.bg, next);
     }
 
     function selectSearchEngine(id: string) {
@@ -133,12 +197,7 @@
 >
         <header>
             <h2>Settings</h2>
-            <button type="button" class="close" aria-label="Close settings" onclick={onclose}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 6l-12 12" />
-                    <path d="M6 6l12 12" />
-                </svg>
-            </button>
+            <CloseButton label="Close settings" onclick={onclose} />
         </header>
         <div class="panel-scroll">
         <section>
@@ -175,7 +234,7 @@
 
         <section>
             <h3>Theme</h3>
-            <p class="hint">Pick a theme for the browser chrome. System follows Windows automatically.</p>
+            <p class="hint">Pick a theme for the browser chrome. System follows your OS setting.</p>
 
             <div class="theme-swatches">
                 {#each themes as t (t.id)}
@@ -196,6 +255,55 @@
                     </button>
                 {/each}
             </div>
+
+            <div class="customrow">
+                <div class="colorfield">
+                    <span class="colorlabel">Custom colour</span>
+                    <div class="colorpick">
+                        <input
+                            class="swatch"
+                            type="color"
+                            aria-label="Custom base colour"
+                            value={custom.bg}
+                            oninput={(e) => applyCustom(e.currentTarget.value, custom.accent)}
+                        />
+                        <input
+                            class="hex"
+                            type="text"
+                            spellcheck="false"
+                            autocomplete="off"
+                            maxlength="7"
+                            aria-label="Custom base colour hex code"
+                            value={custom.bg}
+                            oninput={(e) => applyHex(e.currentTarget.value, 'bg')}
+                        />
+                    </div>
+                </div>
+
+                <div class="colorfield">
+                    <span class="colorlabel">Accent</span>
+                    <div class="colorpick">
+                        <input
+                            class="swatch"
+                            type="color"
+                            aria-label="Accent colour"
+                            value={custom.accent}
+                            oninput={(e) => applyCustom(custom.bg, e.currentTarget.value)}
+                        />
+                        <input
+                            class="hex"
+                            type="text"
+                            spellcheck="false"
+                            autocomplete="off"
+                            maxlength="7"
+                            aria-label="Accent colour hex code"
+                            value={custom.accent}
+                            oninput={(e) => applyHex(e.currentTarget.value, 'accent')}
+                        />
+                    </div>
+                </div>
+            </div>
+            <p class="hint subtle">The accent colour drives buttons, switches and selection marks.</p>
 
             <div class="wallpaper">
                 <div class="wallpaper-preview" class:empty={!wallpaper} aria-hidden="true">
@@ -300,7 +408,7 @@
             <label class="row">
                 <span class="rowtext">
                     <span class="rowtitle">Block ads</span>
-                    <span class="rowsub">Stops requests to known advertising networks. Reload open tabs to apply.</span>
+                    <span class="rowsub">Blocks known ad and tracker networks on Windows, and hides ad slots on every platform. Reload open tabs to apply.</span>
                 </span>
                 <input
                     type="checkbox"
@@ -355,24 +463,6 @@
         font-size: 19px;
         font-weight: 600;
         color: var(--text);
-    }
-
-    .close {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 30px;
-        height: 30px;
-        padding: 0;
-        border: none;
-        border-radius: 8px;
-        background: transparent;
-        color: var(--text-soft);
-        cursor: pointer;
-    }
-
-    .close:hover {
-        background: var(--field);
     }
 
     h3 {
@@ -499,6 +589,74 @@
         border-radius: 50%;
         border: 2px solid var(--dot-accent);
         pointer-events: none;
+    }
+
+    .customrow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+    }
+
+    .colorfield {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        flex: 1 1 150px;
+        min-width: 0;
+    }
+
+    .colorlabel {
+        font-size: 11.5px;
+        color: var(--text-muted);
+    }
+
+    .colorpick {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px 6px 6px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--field);
+        transition: border-color 0.15s ease;
+    }
+
+    .colorpick:focus-within {
+        border-color: var(--accent);
+    }
+
+    .swatch {
+        flex: 0 0 auto;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: none;
+        cursor: pointer;
+    }
+    .swatch::-webkit-color-swatch-wrapper { padding: 0; }
+    .swatch::-webkit-color-swatch { border: 1px solid var(--border-strong); border-radius: 50%; }
+
+    .hex {
+        min-width: 0;
+        flex: 1;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        outline: none;
+    }
+
+    .hint.subtle {
+        margin: 8px 0 0;
+        font-size: 11.5px;
     }
 
     .engine-list {

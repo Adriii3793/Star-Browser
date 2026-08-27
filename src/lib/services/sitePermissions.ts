@@ -42,14 +42,3 @@ export function saveDecision(origin: string, kind: string, decision: PermissionD
     persist(all);
 }
 
-export function revokeDecision(origin: string, kind: string) {
-    const all = loadSitePermissions();
-    if (!all[origin]) return;
-    delete all[origin][kind];
-    if (Object.keys(all[origin]).length === 0) delete all[origin];
-    persist(all);
-}
-
-export function clearSitePermissions() {
-    persist({});
-}

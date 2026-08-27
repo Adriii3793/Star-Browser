@@ -1,27 +1,42 @@
 <script lang="ts">
     import Button3D from '../ui/Button3D.svelte';
+    import StepShell from './StepShell.svelte';
     import { setup, SEARCH_ENGINES } from '$lib/stores/setup.svelte';
 
     let { onnext }: { onnext: () => void } = $props();
+
+    let broken = $state<string[]>([]);
+    function markBroken(id: string) {
+        if (!broken.includes(id)) broken = [...broken, id];
+    }
 </script>
 
-<div class="wrap">
-    <h1>Choose your search engine</h1>
-    <p class="sub">You can change this anytime in Settings.</p>
-
+<StepShell
+    title="Choose your search engine"
+    subtitle="You can change this anytime in Settings."
+    width={360}
+>
     <div class="list" role="radiogroup" aria-label="Search engine">
         {#each SEARCH_ENGINES as engine (engine.id)}
+            {@const selected = setup.data.searchEngine === engine.id}
             <button
                 class="row"
+                class:selected
                 type="button"
                 role="radio"
-                aria-checked={setup.data.searchEngine === engine.id}
+                aria-checked={selected}
                 onclick={() => (setup.data.searchEngine = engine.id)}
             >
-                <img class="logo" src={engine.logo} alt="" onerror={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
+                <span class="logo" class:lettered={broken.includes(engine.id)}>
+                    {#if broken.includes(engine.id)}
+                        <span class="initial" style="background:{engine.color}">{engine.initial}</span>
+                    {:else}
+                        <img src={engine.logo} alt="" onerror={() => markBroken(engine.id)} />
+                    {/if}
+                </span>
                 <span class="name">{engine.name}</span>
-                <span class="radio" class:on={setup.data.searchEngine === engine.id}>
-                    {#if setup.data.searchEngine === engine.id}
+                <span class="radio" class:on={selected}>
+                    {#if selected}
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7" /></svg>
                     {/if}
                 </span>
@@ -29,36 +44,17 @@
         {/each}
     </div>
 
-    <Button3D label="Continue" onclick={onnext} />
-</div>
+    {#snippet footer()}
+        <Button3D label="Continue" onclick={onnext} />
+    {/snippet}
+</StepShell>
 
 <style>
-    .wrap {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 20px;
-    }
-
-    h1 {
-        margin: 0;
-        font-size: 26px;
-        font-weight: 600;
-        color: var(--text);
-        text-align: center;
-    }
-
-    .sub {
-        margin: -12px 0 0;
-        font-size: 13px;
-        color: var(--text-muted);
-        text-align: center;
-    }
-
     .list {
         display: flex;
         flex-direction: column;
-        width: min(360px, 100%);
+        width: 100%;
+        border: 1px solid var(--border);
         border-radius: 14px;
         overflow: hidden;
         box-shadow: 0 8px 28px var(--shadow);
@@ -75,14 +71,21 @@
         font-family: inherit;
         text-align: left;
         cursor: pointer;
+        transition: background-color 0.15s ease;
     }
 
     .row:last-child {
         border-bottom: none;
     }
 
-    .row:hover {
+    .row:hover,
+    .row.selected {
         background: var(--tab-hover, #fbf6f2);
+    }
+
+    .row:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
     }
 
     .logo {
@@ -92,9 +95,31 @@
         flex: 0 0 auto;
         width: 28px;
         height: 28px;
+        padding: 4px;
         border-radius: 8px;
-        object-fit: contain;
+        overflow: hidden;
         background: var(--field, #f7f1ec);
+    }
+
+    .logo.lettered {
+        padding: 0;
+    }
+
+    .logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+
+    .initial {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
     }
 
     .name {
@@ -114,11 +139,14 @@
         border-radius: 50%;
         border: 1.5px solid var(--border-strong);
         color: var(--accent-contrast, #1c1917);
+        transition:
+            background-color 0.15s ease,
+            border-color 0.15s ease;
     }
 
     .radio.on {
-        background: var(--accent, #80A4D4);
-        border-color: var(--accent, #80A4D4);
+        background: var(--accent, #80a4d4);
+        border-color: var(--accent, #80a4d4);
     }
 
     .radio svg {
@@ -129,5 +157,12 @@
         stroke-width: 3;
         stroke-linecap: round;
         stroke-linejoin: round;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .row,
+        .radio {
+            transition: none;
+        }
     }
 </style>

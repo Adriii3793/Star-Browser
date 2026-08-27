@@ -6,16 +6,58 @@ mod state;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
-use tauri::Emitter;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use state::AppState;
 
-fn shortcut_bindings() -> Vec<(Shortcut, &'static str)> {
-    vec![
-        ("ctrl+shift+t".parse().unwrap(), "newtab"),
-        ("ctrl+shift+h".parse().unwrap(), "history"),
-        ("ctrl+shift+s".parse().unwrap(), "chat"),
-    ]
+/// Default chrome colour, matching `--bg-chrome` of the light theme in `app.css`.
+/// Used until the frontend reports the active theme via `set_caption_color`.
+#[cfg(windows)]
+const DEFAULT_CAPTION_COLOR: &str = "#faf7f7";
+
+/// `#rrggbb` (or `#rgb`) to a Win32 `COLORREF`, which is `0x00bbggrr`.
+#[cfg(windows)]
+fn colorref_from_hex(hex: &str) -> Option<u32> {
+    let raw = hex.trim().trim_start_matches('#');
+    let full = match raw.len() {
+        3 => raw.chars().flat_map(|c| [c, c]).collect::<String>(),
+        6 => raw.to_owned(),
+        _ => return None,
+    };
+    let r = u32::from_str_radix(&full[0..2], 16).ok()?;
+    let g = u32::from_str_radix(&full[2..4], 16).ok()?;
+    let b = u32::from_str_radix(&full[4..6], 16).ok()?;
+    Some(r | (g << 8) | (b << 16))
+}
+
+/// Paints the 1px non-client strip that Windows 11 keeps at the top of an
+/// undecorated window with `shadow: true`. tao inserts that inset in
+/// `WM_NCCALCSIZE` so DWM still draws the drop shadow; DWM fills it with the
+/// caption colour, which otherwise reads as a hard line above our chrome.
+#[cfg(windows)]
+fn apply_caption_color(window: &tauri::WebviewWindow, hex: &str) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR};
+
+    let (Ok(raw), Some(color)) = (window.hwnd(), colorref_from_hex(hex)) else {
+        return;
+    };
+    let hwnd = HWND(raw.0 as *mut core::ffi::c_void);
+
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR,
+            &color as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+}
+
+#[tauri::command]
+fn set_caption_color(window: tauri::WebviewWindow, color: String) {
+    #[cfg(windows)]
+    apply_caption_color(&window, &color);
+    #[cfg(not(windows))]
+    let _ = (window, color);
 }
 
 #[cfg(windows)]
@@ -50,6 +92,8 @@ fn strip_system_frame(window: &tauri::WebviewWindow) {
             std::mem::size_of::<u32>() as u32,
         );
     }
+
+    apply_caption_color(window, DEFAULT_CAPTION_COLOR);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -58,7 +102,7 @@ pub fn run() {
     let _ = dotenvy::dotenv();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_os::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(
@@ -87,23 +131,11 @@ pub fn run() {
         strip_system_frame(&win);
         let _ = win.show();
     }
-    let handle = app.handle().clone();
-    for (shortcut, action) in shortcut_bindings() {
-        let action = action.to_string();
-        let shortcut_for_handler = shortcut.clone();
-        let handle_for_event = handle.clone();
-        let _ = app.global_shortcut().on_shortcut(shortcut_for_handler, move |_app, _shortcut, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-            let _ = handle_for_event.emit("global-shortcut", action.as_str());
-        });
-        let _ = app.global_shortcut().register(shortcut);
-    }
 
     Ok(())
     })
     .invoke_handler(tauri::generate_handler![
+        set_caption_color,
         commands::history::record_visit,
         commands::history::recent_history,
         commands::history::search_history,
@@ -125,10 +157,7 @@ pub fn run() {
         commands::setup::is_setup_complete,
         commands::setup::save_setup,
         commands::setup::load_setup,
-        commands::setup::reset_setup,
-        commands::setup::set_default_browser,
-        commands::setup::data_dir,
-        commands::setup::open_data_dir,
+        commands::files::save_text_file,
         commands::webview::tab_back,
         commands::webview::tab_forward,
         commands::webview::tab_reload,

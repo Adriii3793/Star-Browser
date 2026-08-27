@@ -1,4 +1,4 @@
-import { fetchPageContext } from '$lib/services/ai';
+import { fetchPageContext, readTabPage } from '$lib/services/ai';
 
 export interface ReadPage {
     url: string;
@@ -13,6 +13,8 @@ const MAX_TEXT = 3500;
 
 class ReadingStore {
     pages = $state<ReadPage[]>([]);
+
+    #wanted = false;
 
     #loaded = false;
     #pending = new Set<string>();
@@ -34,16 +36,26 @@ class ReadingStore {
                     )
                     .slice(-MAX_PAGES);
             }
-        } catch {}
+        } catch {
+        }
     }
 
-    async capture(url: string) {
+    enable() {
+        this.#wanted = true;
+    }
+
+    async capture(url: string, tabId?: string | null) {
         if (!/^https?:/i.test(url)) return;
         if (this.#pending.has(url) || this.pages.some((p) => p.url === url)) return;
         this.#pending.add(url);
         try {
-            const page = await fetchPageContext(url);
+            let page = tabId ? await readTabPage(tabId).catch(() => null) : null;
+            if (!page?.text?.trim()) {
+                if (!this.#wanted) return;
+                page = await fetchPageContext(url);
+            }
             if (!page?.text?.trim()) return;
+
             const entry: ReadPage = {
                 url,
                 title: page.title?.trim() || url,
@@ -83,7 +95,8 @@ class ReadingStore {
     #persist() {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify($state.snapshot(this.pages)));
-        } catch {}
+        } catch {
+        }
     }
 }
 

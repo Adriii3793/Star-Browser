@@ -29,3 +29,7 @@ export function fetchPageContext(url: string): Promise<PageContext> {
 export function readTabPage(tabId: string): Promise<PageContext | null> {
     return call('read_tab_page', { tabId });
 }
+
+export function saveTextFile(fileName: string, contents: string): Promise<string> {
+    return call('save_text_file', { fileName, contents });
+}

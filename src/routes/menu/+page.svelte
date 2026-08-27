@@ -78,6 +78,12 @@
         --text-soft: #8a6b57;
         --text-muted: #ac8064;
         --field: #f7f1ec;
+        --field-strong: #efe6de;
+        --tab-active: #ffffff;
+        --accent-hover: #6b8fc4;
+        --success: #27875a;
+        --danger: #c0392b;
+        --overlay: rgba(74, 58, 46, 0.28);
         --tab-hover: #fbf6f2;
         --accent: #80a4d4;
         --border: rgba(74, 58, 46, 0.08);

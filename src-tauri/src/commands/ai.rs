@@ -162,10 +162,16 @@ pub async fn ai_chat(
         .map(|choice| content_to_text(&choice.message.content))
         .ok_or(AppError::AiRequest)?;
 
+    let now = now_millis();
     sqlx::query("INSERT INTO usage_log (used_at) VALUES (?1)")
-        .bind(now_millis())
+        .bind(now)
+        .execute(&state.db)
+        .await?;
+
+    sqlx::query("DELETE FROM usage_log WHERE used_at < ?1")
+        .bind(now - WINDOW_MS)
         .execute(&state.db)
         .await?;
 
     Ok(reply)
-    }
+}

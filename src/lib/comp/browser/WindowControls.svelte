@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, untrack } from 'svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { platform as detectPlatform } from '@tauri-apps/plugin-os';
 	import { windowChrome } from '$lib/stores/windowChrome.svelte';
@@ -17,7 +17,7 @@
 
 	let { platform, background, maximizable = true, onminimize, onmaximize, onclose }: Props = $props();
 
-	let os = $state<Platform>('windows');
+	let os = $state<Platform>(untrack(() => platform) ?? 'windows');
 	let maximized = $derived(windowChrome.maximized);
 
 	let root = $state<HTMLElement | undefined>(undefined);

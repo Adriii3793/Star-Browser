@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+
 export interface Theme {
     id: string;
     name: string;
@@ -115,6 +117,13 @@ export function themeVars(t: Theme): Record<string, string> {
     };
 }
 
+// Windows keeps a 1px non-client strip at the top of the undecorated window so
+// DWM still draws the drop shadow. DWM fills it with the caption colour, so it
+// has to track the chrome or it shows up as a line above the tab bar.
+function syncCaptionColor(t: Theme) {
+    invoke('set_caption_color', { color: t.bg }).catch(() => {});
+}
+
 export function applyThemeVars(t: Theme, target?: HTMLElement) {
     if (typeof document === 'undefined') return;
     const root = target ?? document.documentElement;
@@ -123,6 +132,7 @@ export function applyThemeVars(t: Theme, target?: HTMLElement) {
         else root.style.setProperty(key, value);
     }
     root.dataset.theme = isDark(t) ? 'dark' : 'light';
+    if (!target) syncCaptionColor(t);
 }
 
 class ThemeStore {
@@ -196,23 +206,3 @@ class ThemeStore {
 }
 
 export const theme = new ThemeStore();
-
-export function parseTheme(raw: string): Theme | null {
-    try {
-        const t = JSON.parse(raw);
-        const hex = /^#[0-9a-f]{3,8}$/i;
-        if (typeof t?.name !== 'string') return null;
-        if (![t.bg, t.surface, t.accent].every((c) => typeof c === 'string' && hex.test(c))) return null;
-        if (t.image && !String(t.image).startsWith('data:image/')) return null;
-        return {
-            id: 'custom',
-            name: String(t.name).slice(0, 40),
-            bg: t.bg,
-            surface: t.surface,
-            accent: t.accent,
-            image: t.image ?? null
-        };
-    } catch {
-        return null;
-    }
-}

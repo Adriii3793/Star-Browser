@@ -1,79 +1,65 @@
 <script lang="ts">
     import Button3D from '../ui/Button3D.svelte';
-    import {setup} from '$lib/stores/setup.svelte'
+    import StepShell from './StepShell.svelte';
+    import { setup } from '$lib/stores/setup.svelte';
+    import { cropAvatar } from '$lib/services/avatar';
 
-    let { onnext }: {onnext: () => void} = $props();
+    let { onnext }: { onnext: () => void } = $props();
     let fileEl = $state<HTMLInputElement>();
 
-    function initial() { return(setup.data.name.trim()[0] ?? '?').toUpperCase();}
-    function pickAvatar(e: Event) {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        (e.target as HTMLInputElement).value = '';
-        if (!file || !file.type.startsWith('image/')) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            const img = new Image();
-            img.onload = () => {
-                const c = document.createElement('canvas');
-                const s = Math.min(img.width, img.height);
-                c.width = c.height = 256;
-                const ctx = c.getContext('2d');
-                if(!ctx) return;
-                ctx.drawImage(img, (img.width - s) /2, (img.height - s)/2, s, s, 0, 0, 256, 256);
-                setup.data.avatar = c.toDataURL('image/jpeg', 0.85);
-            };
-            img.src = String(reader.result);
-        };
-        reader.readAsDataURL(file);
+    let initial = $derived((setup.data.name.trim()[0] ?? '?').toUpperCase());
+
+    async function pickAvatar(e: Event) {
+        const input = e.target as HTMLInputElement;
+        const file = input.files?.[0];
+        input.value = '';
+        if (!file) return;
+        const cropped = await cropAvatar(file);
+        if (cropped) setup.data.avatar = cropped;
     }
 </script>
 
-<div class="wrap">
-    <h1>Create your profile</h1>
-    <p class="sub">Only stored on this device</p>
-
+<StepShell title="Create your profile" subtitle="Only stored on this device" width={340}>
     <div class="avatar-wrap">
         <div class="avatar">
-            {#if setup.data.avatar} 
+            {#if setup.data.avatar}
                 <img src={setup.data.avatar} alt="Your profile" />
             {:else if setup.data.name.trim()}
-                <span>{initial()}</span>
+                <span>{initial}</span>
             {:else}
                 <img src="/avatars/default.svg" alt="" />
             {/if}
         </div>
-        <button class="upload" type="button" aria-label="Change photo" title="Change photo" onclick={() => fileEl?.click()}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4" /></svg>
+        <button
+            class="upload"
+            type="button"
+            aria-label="Change photo"
+            title="Change photo"
+            onclick={() => fileEl?.click()}
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4" />
+            </svg>
         </button>
     </div>
+
     <label class="field">
         <span>Your name</span>
         <input type="text" bind:value={setup.data.name} placeholder="Name" maxlength="40" />
     </label>
-    <Button3D label="Continue" disabled={!setup.data.name.trim()} onclick={onnext} />
 
-    <input type="file" accept="image/*" bind:this={fileEl} onchange={pickAvatar} style="display: none" />
-</div>
+    <input type="file" accept="image/*" bind:this={fileEl} onchange={pickAvatar} hidden />
+
+    {#snippet footer()}
+        <Button3D label="Continue" disabled={!setup.data.name.trim()} onclick={onnext} />
+    {/snippet}
+</StepShell>
 
 <style>
-    .wrap {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 14px;
+    .avatar-wrap {
+        position: relative;
     }
-    h1 {
-        margin: 0;
-        font-size: 28px;
-        font-weight: 600;
-        color: var(--text);
-    }
-    .sub {
-        margin: 0 0 8px;
-        font-size: 13px;
-        color: var(--text-muted);
-    }
-    .avatar-wrap { position: relative}
+
     .avatar {
         display: flex;
         align-items: center;
@@ -83,15 +69,17 @@
         border-radius: 50%;
         overflow: hidden;
         background: var(--field);
-        color:var(--accent);
+        color: var(--accent);
         font-size: 38px;
         font-weight: 600;
     }
+
     .avatar img {
         width: 100%;
         height: 100%;
         object-fit: cover;
     }
+
     .upload {
         position: absolute;
         right: -2px;
@@ -107,7 +95,18 @@
         background: var(--accent);
         color: var(--accent-contrast, #1c1917);
         cursor: pointer;
+        transition: transform 0.15s ease;
     }
+
+    .upload:hover {
+        transform: scale(1.08);
+    }
+
+    .upload:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+    }
+
     .upload svg {
         width: 14px;
         height: 14px;
@@ -117,26 +116,40 @@
         stroke-linecap: round;
         stroke-linejoin: round;
     }
+
     .field {
         display: flex;
         flex-direction: column;
         gap: 6px;
-        width: min(340px, 100%);
+        width: 100%;
     }
+
     .field span {
         font-size: 11px;
-        letter-spacing: .06em;
+        letter-spacing: 0.06em;
         color: var(--text-muted);
     }
+
     .field input {
         padding: 11px 14px;
         border: 1px solid var(--border-strong);
         border-radius: 10px;
         background: var(--bg-page);
         color: var(--text);
-        font:inherit;
+        font: inherit;
         font-size: 14px;
         outline: none;
+        transition: border-color 0.15s ease;
     }
-    .field input:focus {border-color: var(--accent);}
+
+    .field input:focus {
+        border-color: var(--accent);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .upload,
+        .field input {
+            transition: none;
+        }
+    }
 </style>

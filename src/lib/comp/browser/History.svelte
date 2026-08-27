@@ -2,6 +2,9 @@
     import { history } from '$lib/stores/history.svelte';
     import { emit } from '@tauri-apps/api/event';
     import type { HistoryEntry } from '$lib/types';
+    import CloseButton from '../ui/CloseButton.svelte';
+    import Favicon from '../ui/Favicon.svelte';
+    import { domainOf } from '$lib/services/favicon';
 
     let { onclose, onopen }: { onclose: () => void; onopen: (url: string) => void } = $props();
 
@@ -13,47 +16,23 @@
         if (e.key === 'Escape') onclose();
     }
 
+    const SEARCH_DEBOUNCE_MS = 160;
+    let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
     function runSearch() {
-        history.search(query);
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => void history.search(query), SEARCH_DEBOUNCE_MS);
     }
 
+    $effect(() => () => clearTimeout(searchTimer));
+
     function clearEverything() {
+        clearTimeout(searchTimer);
         void emit('overlay-clear-data', {});
         query = '';
         history.clear();
     }
 
-    function domainOf(url: string): string {
-        try {
-            return new URL(url).hostname.replace(/^www\./, '');
-        } catch {
-            return url;
-        }
-    }
-
-    function faviconFor(rawUrl: string): string {
-        try {
-            const u = new URL(rawUrl);
-            return `${u.origin}/favicon.ico`;
-        } catch {
-            return '';
-        }
-    }
-
-    function faviconFallback(e: Event, rawUrl: string) {
-        const img = e.currentTarget as HTMLImageElement;
-        if (img.dataset.fallback === 'ddg') {
-            img.style.display = 'none';
-            return;
-        }
-        img.dataset.fallback = 'ddg';
-        try {
-            const host = new URL(rawUrl).hostname;
-            img.src = `https://icons.duckduckgo.com/ip3/${host}.ico`;
-        } catch {
-            img.style.display = 'none';
-        }
-    }
 
     function dayLabel(ms: number): string {
         const d = new Date(ms);
@@ -107,12 +86,7 @@
     <div class="panel" role="dialog" tabindex="-1" aria-modal="true" aria-label="History">
         <header>
             <h2>History</h2>
-            <button type="button" class="close" aria-label="Close history" onclick={onclose}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 6L6 18" />
-                    <path d="M6 6l12 12" />
-                </svg>
-            </button>
+            <CloseButton label="Close history" onclick={onclose} />
         </header>
 
         <div class="tools">
@@ -142,9 +116,7 @@
                     <h3 class="day">{group.label}</h3>
                     {#each group.items as entry (entry.id)}
                         <button class="row" type="button" onclick={() => open(entry.url)}>
-                            <span class="icon">
-                                <img src={faviconFor(entry.url)} alt="" onerror={(e) => faviconFallback(e, entry.url)} />
-                            </span>
+                            <span class="icon"><Favicon url={entry.url} size={18} /></span>
                             <span class="text">
                                 <span class="title">{entry.query ?? entry.title}</span>
                                 <span class="url">{domainOf(entry.url)}</span>
@@ -193,24 +165,6 @@
         font-size: 19px;
         font-weight: 600;
         color: var(--text);
-    }
-
-    .close {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 30px;
-        height: 30px;
-        padding: 0;
-        border: none;
-        border-radius: 8px;
-        background: transparent;
-        color: var(--text-soft);
-        cursor: pointer;
-    }
-
-    .close:hover {
-        background: var(--field);
     }
 
     .tools {
@@ -315,13 +269,6 @@
         width: 20px;
         height: 20px;
     }
-    .icon img {
-        width: 18px;
-        height: 18px;
-        border-radius: 3px;
-        object-fit: contain;
-    }
-
     .text {
         display: flex;
         flex-direction: column;

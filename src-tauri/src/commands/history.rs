@@ -72,18 +72,29 @@ pub async fn recent_history(
     Ok(entries)
 }
 
+fn like_pattern(term: &str) -> String {
+    let mut escaped = String::with_capacity(term.len() + 2);
+    for c in term.trim().chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    format!("%{escaped}%")
+}
+
 #[tauri::command]
 pub async fn search_history(
     state: State<'_, AppState>,
     term: String,
     limit: i64,
 ) -> Result<Vec<HistoryEntry>, AppError> {
-    let pattern = format!("%{}%", term.trim());
+    let pattern = like_pattern(&term);
 
     let entries = sqlx::query_as::<_, HistoryEntry>(
         "SELECT id, url, title, query, visited_at, visit_count
         FROM history
-        WHERE query LIKE ?1 OR title LIKE ?1 OR url LIKE ?1
+        WHERE query LIKE ?1 ESCAPE '\\' OR title LIKE ?1 ESCAPE '\\' OR url LIKE ?1 ESCAPE '\\'
         ORDER BY visited_at DESC
         LIMIT ?2",
     )
@@ -102,4 +113,21 @@ pub async fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::like_pattern;
+
+    #[test]
+    fn escapes_like_metacharacters_so_they_match_literally() {
+        assert_eq!(like_pattern("50%"), r"%50\%%");
+        assert_eq!(like_pattern("my_file"), r"%my\_file%");
+        assert_eq!(like_pattern(r"a\b"), r"%a\\b%");
+    }
+
+    #[test]
+    fn leaves_ordinary_terms_alone_and_trims() {
+        assert_eq!(like_pattern("  github  "), "%github%");
+    }
 }
