@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { inflateSync, deflateSync, crc32 } from 'node:zlib';
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -103,11 +103,11 @@ function encode({ width, height, pixels }) {
 	const ihdr = Buffer.alloc(13);
 	ihdr.writeUInt32BE(width, 0);
 	ihdr.writeUInt32BE(height, 4);
-	ihdr[8] = 8; // bit depth
-	ihdr[9] = 6; // colour type: RGBA
-	ihdr[10] = 0; // compression
-	ihdr[11] = 0; // filter
-	ihdr[12] = 0; // interlace
+	ihdr[8] = 8;
+	ihdr[9] = 6;
+	ihdr[10] = 0;
+	ihdr[11] = 0;
+	ihdr[12] = 0;
 
 	return Buffer.concat([
 		PNG_MAGIC,
@@ -171,10 +171,16 @@ if (image.width !== image.height) {
 	console.warn(`round-icon: ${source} is ${image.width}x${image.height}, not square — corners may look uneven`);
 }
 
-const backup = source.replace(/\.png$/i, '.original.png');
-if (out === source && !existsSync(backup)) {
-	copyFileSync(source, backup);
-	console.log(`round-icon: kept the original as ${backup}`);
+const alphaAt = (x, y) => image.pixels[(y * image.width + x) * 4 + 3];
+const corners = [
+	[0, 0],
+	[image.width - 1, 0],
+	[0, image.height - 1],
+	[image.width - 1, image.height - 1]
+];
+if (corners.every(([x, y]) => alphaAt(x, y) === 0) && !args.includes('--force')) {
+	console.log(`round-icon: ${source} already has rounded corners — nothing to do (pass --force to round it again).`);
+	process.exit(0);
 }
 
 writeFileSync(out, encode(roundCorners(image, ratio)));

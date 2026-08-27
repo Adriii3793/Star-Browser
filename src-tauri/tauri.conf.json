@@ -80,7 +80,9 @@
           "Italian",
           "English"
         ],
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
       }
     }
   }
