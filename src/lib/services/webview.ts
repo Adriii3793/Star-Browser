@@ -137,8 +137,8 @@ export function setTabMutedWebview(tabId: string, muted: boolean): Promise<void>
     return call('set_tab_muted', {tabId, muted});
 }
 
-export function tabMediaToggle(tabId: string): Promise<void> {
-    return call('tab_media_toggle', {tabId});
+export function tabMediaToggle(tabId: string, playing: boolean): Promise<void> {
+    return call('tab_media_toggle', {tabId, playing});
 }
 
 export function tabStopMedia(tabId: string): Promise<void> {

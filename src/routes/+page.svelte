@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { platform as osPlatform } from '@tauri-apps/plugin-os';
   import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -96,6 +96,8 @@
   onMount(async () => {
     os = detectOs();
 
+    await windowChrome.init();
+
     try {
       setupDone = await isSetupComplete();
     } catch (e) {
@@ -105,7 +107,9 @@
     await setup.load();
     applySavedTheme();
     if (setupDone === false) await enterSetupWindowMode();
-  });
+  })
+
+  onDestroy(() => windowChrome.destroy());
 </script>
 
 <div

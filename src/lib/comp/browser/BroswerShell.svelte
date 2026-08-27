@@ -73,8 +73,6 @@
 
         void restoreTabSession();
         void warmOverlayWebview(new DOMRect(0, 0, window.innerWidth, window.innerHeight)).catch(() => {});
-        void windowChrome.init();
-
         const captureFs = (e: KeyboardEvent) => {
             if (e.key === 'F11' || e.code === 'F11' || (e as KeyboardEvent & { keyCode?: number }).keyCode === 122) {
                 e.preventDefault();
@@ -316,6 +314,7 @@
     $effect(() => {
         void windowChrome.fullscreen;
         void windowChrome.maximized;
+        void windowChrome.snapped;
         untrack(() => {
             sendMenuState();
             reapplyTabBounds();
@@ -513,10 +512,10 @@
             ...(kind === 'settings'
                 ? {
                       background: setup.data.background,
-                      customBg: setup.data.customBg,
-                      customSurface: setup.data.customSurface,
-                      customAccent: setup.data.customAccent
-                  }
+                    customBg: setup.data.customBg ?? null,
+                    customSurface: setup.data.customSurface ?? null,
+                    customAccent: setup.data.customAccent ?? null
+                }
                 : {})
         });
         emit('overlay-theme', utilityVars());
@@ -674,7 +673,10 @@
             if (e.payload?.tabId) void selectTab(e.payload.tabId);
         });
         const unlistenToggle = listen<{ tabId: string }>('overlay-media-toggle', (e) => {
-            if (e.payload?.tabId) tabMediaToggle(e.payload.tabId);
+            const id = e.payload?.tabId;
+            if (!id) return;
+            const tab = tabs.find((t) => t.id === id);
+            void tabMediaToggle(id, tab?.audible ?? false)
         });
         const unlistenMute = listen<{ tabId: string }>('overlay-media-mute', (e) => {
             if (e.payload?.tabId) toggleMuteTab(e.payload.tabId);
@@ -826,9 +828,22 @@
         };
     });
 
-    function toggleMaximizeOnDrag(e: MouseEvent) {
+    async function beginWindowDrag(e: MouseEvent) {
         if (e.button !== 0) return;
-        windowChrome.toggle();
+        e.preventDefault();
+        const win = getCurrentWindow();
+
+        if (e.detail === 2) {
+            if (windowChrome.fullscreen) await windowChrome.setFullscreen(false);
+            else await windowChrome.toggle();
+            return;
+        }
+
+        if (windowChrome.fullscreen) await windowChrome.setFullscreen(false);
+        else if (windowChrome.maximized) await win.unmaximize().catch(() => {});
+
+        await win.startDragging().catch(() => {});
+        await windowChrome.refresh();
     }
 
     async function toggleFullscreen() {
@@ -883,7 +898,10 @@
             if (url === 'about:blank' || url.startsWith('data:')) return;
             const tab = tabs.find((t) => t.id === tabId);
             if (!tab) return;
-            if (tab.url && tab.url !== url && (tab.audible || tab.hadAudio)) {
+            const sameOrigin = (a: string, b: string) => {
+                try { return new URL(a).origin === new URL(b).origin; } catch { return false; }
+            };
+            if (tab.url && tab.url !== url && !sameOrigin(tab.url, url) && (tab.audible || tab.hadAudio)) {
                 tab.audible = false;
                 tab.hadAudio = false;
             }
@@ -1463,12 +1481,7 @@
             menuResetToken={tabMenuReset}
         />
 
-        <div
-            class="drag-region"
-            data-tauri-drag-region={isFullscreen ? null : ''}
-            role="presentation"
-            ondblclick={toggleMaximizeOnDrag}
-        ></div>
+        <div class="drag-region" role="presentation" onmousedown={beginWindowDrag}></div>
 
         {#if os === 'macos'}
             {@render menuButton()}

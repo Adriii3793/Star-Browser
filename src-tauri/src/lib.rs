@@ -5,7 +5,8 @@ mod state;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use state::AppState;
 
 /// Default chrome colour, matching `--bg-chrome` of the light theme in `app.css`.
@@ -60,6 +61,14 @@ fn set_caption_color(window: tauri::WebviewWindow, color: String) {
     let _ = (window, color);
 }
 
+fn shortcut_bindings() -> Vec<(Shortcut, &'static str)> {
+    vec![
+        ("ctrl+shift+t".parse().unwrap(), "newtab"),
+        ("ctrl+shift+h".parse().unwrap(), "history"),
+        ("ctrl+shift+s".parse().unwrap(), "chat"),
+    ]
+}
+
 #[cfg(windows)]
 fn strip_system_frame(window: &tauri::WebviewWindow) {
     use windows::Win32::Foundation::HWND;
@@ -103,6 +112,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(
@@ -130,6 +140,19 @@ pub fn run() {
         #[cfg(windows)]
         strip_system_frame(&win);
         let _ = win.show();
+    }
+
+    let handle = app.handle().clone();
+    for (shortcut, action) in shortcut_bindings() {
+        let action = action.to_string();
+        let handle_for_event = handle.clone();
+        let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            let _ = handle_for_event.emit("global-shortcut", action.as_str());
+        });
+        let _ = app.global_shortcut().register(shortcut);
     }
 
     Ok(())
@@ -173,5 +196,5 @@ pub fn run() {
         commands::tabs::load_tab_session,
     ])
     .run(tauri::generate_context!())
-    .expect("failed to start star")
+    .expect("failed to start star");
 }

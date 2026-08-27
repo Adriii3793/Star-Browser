@@ -366,7 +366,8 @@ pub async fn open_tab_webview(
     let audio_app = app.clone();
     #[cfg(not(windows))]
     let audio_tab_id = tab_id.clone();
-    let last_urls = state.last_tab_urls.clone();    let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
+    let last_urls = state.last_tab_urls.clone();
+    let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
         .zoom_hotkeys_enabled(false)
         .initialization_script_for_all_frames(SHORTCUT_FORWARD_SCRIPT)
         .initialization_script_for_all_frames(MEDIA_SCRIPT)
@@ -877,7 +878,11 @@ fn eval_media(
 }
 
 #[tauri::command]
-pub async fn tab_media_toggle(state: State<'_, AppState>, tab_id: String) -> Result<(), AppError> {
+pub async fn tab_media_toggle(
+    state: State<'_, AppState>,
+    tab_id: String,
+    _playing: Option<bool>,
+) -> Result<(), AppError> {
     eval_media(&state, &tab_id, "toggle()")
 }
 

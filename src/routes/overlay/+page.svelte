@@ -171,6 +171,7 @@
     :global(textarea) {
         -webkit-user-select: text;
         user-select: text;
+        cursor: auto;
     }
 
     :global(.overlay),
