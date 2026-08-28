@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Star",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.studio.star",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -42,9 +42,9 @@
     "copyright": "\u00a9 2026 Star Studio",
     "license": "MIT",
     "category": "Productivity",
-    "shortDescription": "Star \u2014 a minimalist AI browser",
+    "shortDescription": "Star is  a minimalist AI browser",
     "longDescription": "Star is a minimalist web browser with a built-in AI assistant: tab groups, ad blocking, a media mini-player, and a side panel that can answer questions about the page you are reading.",
-    "homepage": "https://github.com/Adriii3793/Project-2k26",
+    "homepage": "https://github.com/Adriii3793/Star-Browser",
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",
