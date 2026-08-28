@@ -2,6 +2,10 @@
 
 Star is a lightweight, beginner-friendly desktop browser with built-in AI assistant.
 
+
+https://github.com/user-attachments/assets/25ede41e-1606-4083-99a6-0ce38ab7a3f9
+
+
 # Features 
 1. AI: can read the page you are on and recall your recent browsing, remembering everything you said.
 2. Custom themes/wallpaper: personalize your browser to fit your style.
@@ -9,6 +13,10 @@ Star is a lightweight, beginner-friendly desktop browser with built-in AI assist
 4. Tab groups: Stay organize with custom colors
 5. Media Player: Control your music in your browser
 6. Built for privacy and security: Star is local. Your history, favorites and AI memory live on your computer
+
+# AI Memory Demo
+
+https://github.com/user-attachments/assets/9463198b-b413-49e0-9961-20570f49deb9
 
 # Quick Start on how to install this app:
 **Notice:**
