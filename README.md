@@ -9,7 +9,7 @@ https://github.com/user-attachments/assets/25ede41e-1606-4083-99a6-0ce38ab7a3f9
 # Features 
 1. AI: can read the page you are on and recall your recent browsing, remembering everything you said.
 2. Custom themes/wallpaper: personalize your browser to fit your style.
-3. Ad blocker: Block ads wihtout ruining your browsing experience
+3. Ad blocker: Block ads without ruining your browsing experience
 4. Tab groups: Stay organize with custom colors
 5. Media Player: Control your music in your browser
 6. Built for privacy and security: Star is local. Your history, favorites and AI memory live on your computer
@@ -25,9 +25,9 @@ MacOS and Linux builds compile successfully and been tested in virtual machines.
 However bacause the virtual machines run slowly, we aren't sure exactly how smooth the performance is yet.
 Expect some bugs and problems on these operative systems since they are currently untested on real native hardware.
 
-- [Windows]()
-- [MacOs]()
-- [Linux]()
+- [Windows](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.0.0)
+- [MacOs](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.0.0)
+- [Linux](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.0.0)
 
 The builds aren't code signed so your system will probebaly warn you the first time:
 
@@ -99,5 +99,5 @@ The first build takes a while because Rust compiles everything from scratch. Aft
 
 ## License
 
-Star Browser is released under the [MIT License](LICENSE) — © 2026 Star Studio.
+Star Browser is released under the [MIT License](LICENSE) — Star Studio.
 You are free to use, modify, and distribute it, including commercially, as long as the copyright notice and license text stay with the copies.
