@@ -21,9 +21,10 @@ https://github.com/user-attachments/assets/9463198b-b413-49e0-9961-20570f49deb9
 # Quick Start on how to install this app:
 **Notice:**
 Star is optimized and tested on **Windows**.
-MacOS and Linux builds compile successfully and been tested in virtual machines .
+MacOS and Linux builds compile successfully and been tested in virtual machines.
 However bacause the virtual machines run slowly, we aren't sure exactly how smooth the performance is yet.
-Expect some bugs and problems on these operative systems since they are currently untested on real native hardware
+Expect some bugs and problems on these operative systems since they are currently untested on real native hardware.
+
 - [Windows]()
 - [MacOs]()
 - [Linux]()
@@ -33,7 +34,10 @@ The builds aren't code signed so your system will probebaly warn you the first t
 - **Windows:** SmartScreen shows a warning.
 Click more info and Run anyway
 - **Linux:** make the AppImage executable first with chmod+x.
-
+# Known issues on Linux:
+- Web pages inside the browser can render cut off, not filling the whole window
+- Popup elements (dropdowns, menus, etc.) can break parts of the UI.
+  
 # How it works:
 
 we decided to use Tauri framework as our base to build our application.
