@@ -25,18 +25,15 @@ MacOS and Linux builds compile successfully and been tested in virtual machines.
 However bacause the virtual machines run slowly, we aren't sure exactly how smooth the performance is yet.
 Expect some bugs and problems on these operative systems since they are currently untested on real native hardware.
 
-- [Windows](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.0.0)
-- [MacOs](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.0.0)
-- [Linux](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.0.0)
+- [Windows](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.1.1)
+- [MacOs](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.1.1)
+- [Linux](https://github.com/Adriii3793/Star-Browser/releases/tag/v1.1.1)
 
 The builds aren't code signed so your system will probebaly warn you the first time:
 
 - **Windows:** SmartScreen shows a warning.
 Click more info and Run anyway
 - **Linux:** make the AppImage executable first with chmod+x.
-# Known issues on Linux:
-- Web pages inside the browser can render cut off, not filling the whole window
-- Popup elements (dropdowns, menus, etc.) can break parts of the UI.
   
 # How it works:
 
@@ -52,6 +49,8 @@ You can do it by following these steps!
 **Windows**
 - [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/), with *Desktop development with C++* selected
 - WebView2 — already installed on Windows 11, on Windows 10 get it [here](https://developer.microsoft.com/microsoft-edge/webview2/)
+
+  
 **macOS**
 ```bash
 xcode-select --install
@@ -93,11 +92,11 @@ npm run tauri build
 The first build takes a while because Rust compiles everything from scratch. After that it's much faster. The installers end up in `src-tauri/target/release/bundle/`.
 ## Credits
 
-- **Adrian** & **[Github](https://github.com/AronMedinaa)** | **[Stardance](https://stardance.hackclub.com/@Aron_3763)**: Aron helped me with this project and we learned new things together.
+- **Adrian** **[Github](https://github.com/Adriii3793)** | **[Stardance](https://stardance.hackclub.com/@adri_3763/)** & Aron **[Github](https://github.com/AronMedinaa)** | **[Stardance](https://stardance.hackclub.com/@Aron_3763)**: Aron helped me with this project and we learned new things together.
 - **AI Tools**: Helped us learn new programming languages, understand code, optimize, debug, and run tests.
 
 
 ## License
 
-Star Browser is released under the [MIT License](LICENSE) — Star Studio.
+Star Browser is released under the [MIT License](LICENSE) - Star Studio.
 You are free to use, modify, and distribute it, including commercially, as long as the copyright notice and license text stay with the copies.
