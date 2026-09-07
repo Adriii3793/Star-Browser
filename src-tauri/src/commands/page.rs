@@ -1,7 +1,7 @@
+use crate::error::AppError;
+use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
-use crate::error::AppError;
 
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 16_000;
@@ -37,7 +37,11 @@ pub async fn fetch_page_context(url: String) -> Result<PageContext, AppError> {
         return Err(AppError::InvalidUrl);
     }
 
-    let mut response = client()?.get(parsed).send().await.map_err(|_| AppError::PageFetch)?;
+    let mut response = client()?
+        .get(parsed)
+        .send()
+        .await
+        .map_err(|_| AppError::PageFetch)?;
     if !response.status().is_success() {
         return Err(AppError::PageFetch);
     }
@@ -75,7 +79,14 @@ pub async fn fetch_page_context(url: String) -> Result<PageContext, AppError> {
         text.push_str("\n[content truncated]");
     }
 
-    Ok(PageContext { url: final_url.to_string(), title, text, images, videos, truncated })
+    Ok(PageContext {
+        url: final_url.to_string(),
+        title,
+        text,
+        images,
+        videos,
+        truncated,
+    })
 }
 
 fn between(html: &str, open: &str, close: &str) -> Option<String> {
@@ -106,14 +117,19 @@ fn sources(html: &str, tag: &str, base: &url::Url, limit: usize) -> Vec<String> 
     let (mut out, mut cur) = (Vec::new(), 0usize);
     while let Some(rel) = lower[cur..].find(tag) {
         let start = cur + rel;
-        let end = match lower[start..].find('>') { Some(e) => start + e, None => break };
+        let end = match lower[start..].find('>') {
+            Some(e) => start + e,
+            None => break,
+        };
         if let Some(src) = attr(&html[start..end], "src") {
             if let Ok(abs) = base.join(&src) {
                 if matches!(abs.scheme(), "http" | "https") {
                     let abs = abs.to_string();
                     if !out.contains(&abs) {
                         out.push(abs);
-                        if out.len() >= limit { return out; }
+                        if out.len() >= limit {
+                            return out;
+                        }
                     }
                 }
             }
@@ -151,12 +167,31 @@ fn attr(tag_src: &str, name: &str) -> Option<String> {
 
 fn decode_entities(input: &str) -> String {
     const NAMED: &[(&str, &str)] = &[
-        ("amp", "&"), ("lt", "<"), ("gt", ">"), ("quot", "\""), ("apos", "'"),
-        ("nbsp", " "), ("mdash", "\u{2014}"), ("ndash", "\u{2013}"), ("hellip", "\u{2026}"),
-        ("lsquo", "\u{2018}"), ("rsquo", "\u{2019}"), ("ldquo", "\u{201C}"), ("rdquo", "\u{201D}"),
-        ("laquo", "\u{00AB}"), ("raquo", "\u{00BB}"), ("times", "\u{00D7}"), ("middot", "\u{00B7}"),
-        ("bull", "\u{2022}"), ("deg", "\u{00B0}"), ("euro", "\u{20AC}"), ("pound", "\u{00A3}"),
-        ("copy", "\u{00A9}"), ("reg", "\u{00AE}"), ("trade", "\u{2122}"), ("shy", ""),
+        ("amp", "&"),
+        ("lt", "<"),
+        ("gt", ">"),
+        ("quot", "\""),
+        ("apos", "'"),
+        ("nbsp", " "),
+        ("mdash", "\u{2014}"),
+        ("ndash", "\u{2013}"),
+        ("hellip", "\u{2026}"),
+        ("lsquo", "\u{2018}"),
+        ("rsquo", "\u{2019}"),
+        ("ldquo", "\u{201C}"),
+        ("rdquo", "\u{201D}"),
+        ("laquo", "\u{00AB}"),
+        ("raquo", "\u{00BB}"),
+        ("times", "\u{00D7}"),
+        ("middot", "\u{00B7}"),
+        ("bull", "\u{2022}"),
+        ("deg", "\u{00B0}"),
+        ("euro", "\u{20AC}"),
+        ("pound", "\u{00A3}"),
+        ("copy", "\u{00A9}"),
+        ("reg", "\u{00AE}"),
+        ("trade", "\u{2122}"),
+        ("shy", ""),
     ];
 
     if !input.contains('&') {
@@ -179,10 +214,17 @@ fn decode_entities(input: &str) -> String {
             continue;
         };
         let body = &tail[1..semi];
-        let decoded = if let Some(hex) = body.strip_prefix("#x").or_else(|| body.strip_prefix("#X")) {
-            u32::from_str_radix(hex, 16).ok().and_then(char::from_u32).map(String::from)
+        let decoded = if let Some(hex) = body.strip_prefix("#x").or_else(|| body.strip_prefix("#X"))
+        {
+            u32::from_str_radix(hex, 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(String::from)
         } else if let Some(dec) = body.strip_prefix('#') {
-            dec.parse::<u32>().ok().and_then(char::from_u32).map(String::from)
+            dec.parse::<u32>()
+                .ok()
+                .and_then(char::from_u32)
+                .map(String::from)
         } else {
             NAMED
                 .iter()
@@ -216,7 +258,10 @@ fn visible_text(html: &str) -> String {
     for ch in c.chars() {
         match ch {
             '<' => in_tag = true,
-            '>' => { in_tag = false; text.push(' '); }
+            '>' => {
+                in_tag = false;
+                text.push(' ');
+            }
             x if !in_tag => text.push(x),
             _ => {}
         }
@@ -253,14 +298,20 @@ mod tests {
 
     #[test]
     fn handles_unquoted_and_missing_values() {
-        assert_eq!(attr("<img src=plain.jpg alt=x", "src").as_deref(), Some("plain.jpg"));
+        assert_eq!(
+            attr("<img src=plain.jpg alt=x", "src").as_deref(),
+            Some("plain.jpg")
+        );
         assert_eq!(attr(r#"<img data-src="only-lazy.jpg""#, "src"), None);
         assert_eq!(attr("<img>", "src"), None);
     }
 
     #[test]
     fn tolerates_whitespace_around_the_equals_sign() {
-        assert_eq!(attr(r#"<img  src = "spaced.jpg""#, "src").as_deref(), Some("spaced.jpg"));
+        assert_eq!(
+            attr(r#"<img  src = "spaced.jpg""#, "src").as_deref(),
+            Some("spaced.jpg")
+        );
     }
 
     #[test]

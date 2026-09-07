@@ -32,7 +32,7 @@ export const AI_PROVIDERS: AiProvider[] = [
 
 export const DEFAULT_PROVIDER: AiProviderId = 'nemotron';
 
-export function providerById(id: AiProviderId): AiProvider {
+function providerById(id: AiProviderId): AiProvider {
     return AI_PROVIDERS.find((p) => p.id === id) ?? AI_PROVIDERS[0];
 }
 

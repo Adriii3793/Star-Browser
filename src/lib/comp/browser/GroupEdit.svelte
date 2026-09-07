@@ -15,7 +15,7 @@
         onclose,
         onsave
     }: {
-        onclose: () => void;
+        onclose: (reason?: 'backdrop') => void;
         onsave: (payload: { groupId: string; name: string; color: string }) => void;
     } = $props();
 
@@ -65,7 +65,7 @@
 <svelte:window onkeydown={keydown} />
 
 {#if edit}
-    <div class="scrim" role="presentation" onclick={onclose}></div>
+    <div class="scrim" role="presentation" onclick={() => onclose('backdrop')}></div>
     <div class="pop" role="dialog" aria-label="Edit tab group" style:left="{edit.x}px" style:top="{edit.y}px">
         <input
             bind:this={input}
@@ -98,7 +98,7 @@
         </div>
 
         <div class="actions">
-            <button type="button" class="cancel" onclick={onclose}>Cancel</button>
+            <button type="button" class="cancel" onclick={() => onclose()}>Cancel</button>
             <button type="button" class="save" onclick={save}>Save</button>
         </div>
     </div>

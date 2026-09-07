@@ -31,6 +31,15 @@ pub async fn is_setup_complete(state: State<'_, AppState>) -> Result<bool, AppEr
     Ok(row.is_some())
 }
 
+pub async fn setup_pending(db: &sqlx::SqlitePool) -> bool {
+    sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = ?1")
+        .bind(KEY)
+        .fetch_optional(db)
+        .await
+        .map(|row| row.is_none())
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 pub async fn save_setup(state: State<'_, AppState>, data: SetupData) -> Result<(), AppError> {
     let json = serde_json::to_string(&data).map_err(|_| AppError::SetupSerialize)?;

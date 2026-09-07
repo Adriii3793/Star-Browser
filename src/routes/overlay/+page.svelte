@@ -1,4 +1,5 @@
 <script lang="ts">
+    import '../../app.css';
     import { onMount } from 'svelte';
     import Settings from '$lib/comp/browser/Settings.svelte';
     import History from '$lib/comp/browser/History.svelte';
@@ -8,10 +9,16 @@
     import TabMenu from '$lib/comp/browser/TabMenu.svelte';
     import GroupEdit from '$lib/comp/browser/GroupEdit.svelte';
     import { emit, listen } from '@tauri-apps/api/event';
+    import { clippedSurface, watchSurfaceClip } from '$lib/services/surface';
+    import type { AiKeyStatus } from '$lib/services/ai';
+    import { shouldDismissOnBlur, shouldDismissOnPointer } from '$lib/services/popup';
 
     type Kind = 'settings' | 'history' | 'downloads' | 'media' | 'profile' | 'tabmenu' | 'groupedit' | null;
     let kind = $state<Kind>(null);
+    let rootEl = $state<HTMLElement>();
+    let shownAt = 0;
     interface SettingsState {
+        aiKey: AiKeyStatus | null;
         themeId: string;
         searchEngine: string;
         background: string | null;
@@ -20,6 +27,7 @@
         customAccent: string | null;
     }
     let settings = $state<SettingsState>({
+        aiKey: null,
         themeId: 'light',
         searchEngine: 'google',
         background: null,
@@ -28,29 +36,69 @@
         customAccent: null
     });
 
-    function close() {
+    let showSeq = 0;
+
+    function close(reason?: 'blur' | 'backdrop') {
+        if (
+            reason === 'backdrop' &&
+            !shouldDismissOnPointer({ shown: kind !== null, shownAt, now: Date.now() })
+        ) {
+            return;
+        }
         kind = null;
-        emit('overlay-close', {});
+        emit('overlay-close', { seq: showSeq, reason });
     }
+
 
     function openUrl(url: string) {
         kind = null;
         emit('overlay-navigate', { url });
     }
 
+    const clip = watchSurfaceClip('overlay', () => rootEl);
+    $effect(() => {
+        void kind;
+        void settings;
+        clip.sync();
+    });
+
     onMount(() => {
+        let unlistenBlur: (() => void) | undefined;
+        if (clippedSurface()) {
+            const onBlur = () => {
+                if (
+                    !shouldDismissOnBlur({
+                        shown: kind !== null,
+                        visible: document.visibilityState === 'visible',
+                        shownAt,
+                        now: Date.now(),
+                        activeElement: document.activeElement
+                    })
+                )
+                    return;
+                close('blur');
+            };
+            window.addEventListener('blur', onBlur);
+            unlistenBlur = () => window.removeEventListener('blur', onBlur);
+        }
         const unlistenShow = listen<{
             kind: Kind;
+            seq?: number;
             themeId?: string;
             searchEngine?: string;
             background?: string | null;
             customBg?: string | null;
             customSurface?: string | null;
             customAccent?: string | null;
+            aiKey?: AiKeyStatus | null;
         }>('overlay-show', (e) => {
             kind = e.payload?.kind ?? null;
+            showSeq = e.payload?.seq ?? showSeq;
+            shownAt = Date.now();
+            clip.invalidate();
             if (!e.payload) return;
             settings = {
+                aiKey: 'aiKey' in e.payload ? e.payload.aiKey ?? null : settings.aiKey,
                 themeId: e.payload.themeId ?? settings.themeId,
                 searchEngine: e.payload.searchEngine ?? settings.searchEngine,
                 background: 'background' in e.payload ? e.payload.background ?? null : settings.background,
@@ -61,6 +109,9 @@
                     'customAccent' in e.payload ? e.payload.customAccent ?? null : settings.customAccent
             };
         });
+        const unlistenAiKey = listen<AiKeyStatus | null>('overlay-ai-key', (e) => {
+            settings = { ...settings, aiKey: e.payload ?? null };
+        });
         const unlistenTheme = listen<Record<string, string>>('overlay-theme', (e) => {
             const root = document.documentElement;
             for (const [key, value] of Object.entries(e.payload ?? {})) {
@@ -70,12 +121,16 @@
 
         Promise.all([unlistenShow, unlistenTheme]).then(() => emit('overlay-ready', {}));
         return () => {
+            unlistenBlur?.();
+            clip.destroy();
             unlistenShow.then((off) => off());
+            unlistenAiKey.then((off) => off());
             unlistenTheme.then((off) => off());
         };
     });
 </script>
 
+<div class="overlay" bind:this={rootEl}>
 {#if kind === 'settings'}
     <Settings
         onclose={close}
@@ -85,6 +140,7 @@
         customBg={settings.customBg}
         customSurface={settings.customSurface}
         customAccent={settings.customAccent}
+        aiKey={settings.aiKey}
     />
 {:else if kind === 'history'}
     <History onclose={close} onopen={openUrl} />
@@ -122,6 +178,7 @@
 {:else if kind === 'groupedit'}
     <GroupEdit onclose={close} onsave={(payload) => emit('overlay-group-save', payload)} />
 {/if}
+</div>
 
 <style>
     :global(*) {
@@ -156,8 +213,7 @@
         padding: 0;
         height: 100%;
         background: transparent !important;
-        font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto,
-            sans-serif;
+        font-family: var(--font-ui);
         color: var(--text);
     }
 
@@ -177,5 +233,16 @@
     :global(.overlay),
     :global(.scrim) {
         border-radius: var(--win-radius, 0px);
+    }
+
+    .overlay {
+        position: fixed;
+        inset: 0;
+        background: transparent;
+    }
+    
+    :global([data-star-clipped-card]) {
+        outline: 1px solid var(--border-strong, rgba(74, 58, 46, 0.24));
+        outline-offset: -1px;
     }
 </style>

@@ -53,9 +53,7 @@ pub async fn save_tab_session(
 }
 
 #[tauri::command]
-pub async fn load_tab_session(
-    state: State<'_, AppState>,
-) -> Result<Option<TabSession>, AppError> {
+pub async fn load_tab_session(state: State<'_, AppState>) -> Result<Option<TabSession>, AppError> {
     let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?1")
         .bind(KEY)
         .fetch_optional(&state.db)

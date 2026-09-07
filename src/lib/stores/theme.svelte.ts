@@ -39,6 +39,12 @@ export function readableText(bgHex: string): string {
     return withBlack >= withWhite ? '#1c1917' : '#ffffff';
 }
 
+export function contrast(a: string, b: string): number {
+    const la = luminance(a);
+    const lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
 export function imageLuminance(dataUrl: string): Promise<number> {
     return new Promise((resolve) => {
         const img = new Image();
@@ -88,6 +94,42 @@ export function isDark(t: Theme): boolean {
     return luminance(t.surface) < 0.5;
 }
 
+function greyOf(hex: string): string {
+    const [r, g, b] = toRgb(hex);
+    const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+    return toHex([y, y, y]);
+}
+
+function fade(text: string, bg: string, amount: number, floor: number): string {
+    let step = amount;
+    let out = mix(text, bg, step);
+    while (step > 0 && contrast(out, bg) < floor) {
+        step = Math.max(0, step - 0.05);
+        out = mix(text, bg, step);
+    }
+    return out;
+}
+
+function lift(base: string, ink: string, amount: number, floor: number): string {
+    let step = amount;
+    let out = mix(base, ink, step);
+    while (step < 0.7 && contrast(out, base) < floor) {
+        step += 0.04;
+        out = mix(base, ink, step);
+    }
+    return out;
+}
+
+export function surfaceFor(bg: string): string {
+    const drained = mix(bg, greyOf(bg), 0.72);
+    if (readableText(bg) !== '#ffffff') {
+        return mix(drained, '#ffffff', 0.8);
+    }
+    return luminance(bg) < 0.12
+        ? mix(drained, '#ffffff', 0.1)
+        : mix(drained, '#141110', 0.5);
+}
+
 export function themeVars(t: Theme): Record<string, string> {
     const dark = isDark(t);
     const text = readableText(t.surface);
@@ -97,17 +139,17 @@ export function themeVars(t: Theme): Record<string, string> {
         '--bg-chrome': t.bg,
         '--bg-page': t.surface,
         '--tab-active': t.surface,
-        '--tab-hover': mix(t.bg, onBg, 0.07),
-        '--field': mix(t.surface, text, 0.06),
-        '--field-strong': mix(t.surface, text, 0.11),
+        '--tab-hover': lift(t.bg, onBg, 0.07, 1.08),
+        '--field': lift(t.surface, text, 0.06, 1.1),
+        '--field-strong': lift(t.surface, text, 0.16, 1.18),
         '--text': text,
-        '--text-soft': mix(text, t.surface, 0.3),
-        '--text-muted': mix(text, t.surface, 0.48),
+        '--text-soft': fade(text, t.surface, 0.3, 4.5),
+        '--text-muted': fade(text, t.surface, 0.48, 3),
         '--accent': t.accent,
         '--accent-hover': mix(t.accent, dark ? '#ffffff' : '#000000', 0.16),
         '--accent-contrast': readableText(t.accent),
-        '--border': mix(t.surface, text, 0.14),
-        '--border-strong': mix(t.surface, text, 0.24),
+        '--border': lift(t.surface, text, 0.14, 1.22),
+        '--border-strong': lift(t.surface, text, 0.24, 1.45),
         '--hover': dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
         '--success': dark ? '#5bd18d' : '#27875a',
         '--danger': dark ? '#ff7d70' : '#c0392b',
@@ -117,9 +159,6 @@ export function themeVars(t: Theme): Record<string, string> {
     };
 }
 
-// Windows keeps a 1px non-client strip at the top of the undecorated window so
-// DWM still draws the drop shadow. DWM fills it with the caption colour, so it
-// has to track the chrome or it shows up as a line above the tab bar.
 function syncCaptionColor(t: Theme) {
     invoke('set_caption_color', { color: t.bg }).catch(() => {});
 }
@@ -182,6 +221,9 @@ class ThemeStore {
         }
         if (typeof next === 'string') {
             return PRESET_THEMES.find((theme) => theme.id === next) ?? this.current;
+        }
+        if (next.id === 'custom') {
+            return { ...next, surface: surfaceFor(next.bg) };
         }
         return next;
     }

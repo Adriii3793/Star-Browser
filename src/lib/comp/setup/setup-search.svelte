@@ -1,14 +1,12 @@
 <script lang="ts">
     import Button3D from '../ui/Button3D.svelte';
+    import { Check } from '@lucide/svelte';
     import StepShell from './StepShell.svelte';
     import { setup, SEARCH_ENGINES } from '$lib/stores/setup.svelte';
+    import EngineLogo from '../ui/EngineLogo.svelte';
 
     let { onnext }: { onnext: () => void } = $props();
 
-    let broken = $state<string[]>([]);
-    function markBroken(id: string) {
-        if (!broken.includes(id)) broken = [...broken, id];
-    }
 </script>
 
 <StepShell
@@ -27,17 +25,11 @@
                 aria-checked={selected}
                 onclick={() => (setup.data.searchEngine = engine.id)}
             >
-                <span class="logo" class:lettered={broken.includes(engine.id)}>
-                    {#if broken.includes(engine.id)}
-                        <span class="initial" style="background:{engine.color}">{engine.initial}</span>
-                    {:else}
-                        <img src={engine.logo} alt="" onerror={() => markBroken(engine.id)} />
-                    {/if}
-                </span>
+                <EngineLogo {engine} size={28} radius={8} />
                 <span class="name">{engine.name}</span>
                 <span class="radio" class:on={selected}>
                     {#if selected}
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7" /></svg>
+                        <Check aria-hidden="true" />
                     {/if}
                 </span>
             </button>
@@ -88,40 +80,6 @@
         outline-offset: -2px;
     }
 
-    .logo {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 auto;
-        width: 28px;
-        height: 28px;
-        padding: 4px;
-        border-radius: 8px;
-        overflow: hidden;
-        background: var(--field, #f7f1ec);
-    }
-
-    .logo.lettered {
-        padding: 0;
-    }
-
-    .logo img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-    }
-
-    .initial {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        height: 100%;
-        color: #fff;
-        font-size: 13px;
-        font-weight: 700;
-    }
-
     .name {
         flex: 1;
         font-size: 14px;
@@ -149,7 +107,7 @@
         border-color: var(--accent, #80a4d4);
     }
 
-    .radio svg {
+    .radio :global(svg) {
         width: 13px;
         height: 13px;
         fill: none;

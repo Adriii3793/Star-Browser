@@ -1,7 +1,7 @@
-use std::sync::OnceLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 use crate::error::AppError;
@@ -39,36 +39,132 @@ fn http_client() -> Result<&'static reqwest::Client, AppError> {
         .ok_or(AppError::AiRequest)
 }
 
-fn api_key() -> Result<String, AppError> {
-    if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
-        if !key.trim().is_empty() {
-            return Ok(key.trim().to_string());
+const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+
+enum Route {
+    Direct { key: String },
+    Proxy { url: &'static str },
+}
+
+const KEY_SETTING: &str = "openrouter_api_key";
+
+async fn stored_key(db: &sqlx::SqlitePool) -> Option<String> {
+    sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = ?1")
+        .bind(KEY_SETTING)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .map(|(value,)| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeySource {
+    User,
+    Environment,
+    Embedded,
+}
+
+impl KeySource {
+    fn name(self) -> &'static str {
+        match self {
+            KeySource::User => "user",
+            KeySource::Environment => "environment",
+            KeySource::Embedded => "embedded",
         }
     }
+}
 
-    match option_env!("STAR_EMBEDDED_API_KEY") {
-        Some(key) if !key.trim().is_empty() => Ok(key.trim().to_string()),
+async fn local_key(db: &sqlx::SqlitePool) -> Option<(KeySource, String)> {
+    if let Some(key) = stored_key(db).await {
+        return Some((KeySource::User, key));
+    }
+    if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+        if !key.trim().is_empty() {
+            return Some((KeySource::Environment, key.trim().to_owned()));
+        }
+    }
+    option_env!("STAR_EMBEDDED_API_KEY")
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(|key| (KeySource::Embedded, key.to_owned()))
+}
+
+async fn route(db: &sqlx::SqlitePool) -> Result<Route, AppError> {
+    if let Some((_, key)) = local_key(db).await {
+        return Ok(Route::Direct { key });
+    }
+    match option_env!("STAR_AI_PROXY") {
+        Some(url) if !url.trim().is_empty() => Ok(Route::Proxy { url: url.trim() }),
         _ => Err(AppError::MissingApiKey),
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiKeyStatus {
+    pub source: &'static str,
+    pub hint: Option<String>,
+}
+
+fn hint_of(key: &str) -> String {
+    let tail: String = key.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+    format!("····{tail}")
+}
+
+#[tauri::command]
+pub async fn ai_key_status(state: State<'_, AppState>) -> Result<AiKeyStatus, AppError> {
+    if let Some((source, key)) = local_key(&state.db).await {
+        return Ok(AiKeyStatus {
+            source: source.name(),
+            hint: Some(hint_of(&key)),
+        });
+    }
+    let proxied = option_env!("STAR_AI_PROXY").is_some_and(|url| !url.trim().is_empty());
+    Ok(AiKeyStatus {
+        source: if proxied { "proxy" } else { "none" },
+        hint: None,
+    })
+}
+
+#[tauri::command]
+pub async fn set_ai_key(state: State<'_, AppState>, key: String) -> Result<AiKeyStatus, AppError> {
+    let key = key.trim();
+    if key.is_empty() {
+        sqlx::query("DELETE FROM settings WHERE key = ?1")
+            .bind(KEY_SETTING)
+            .execute(&state.db)
+            .await?;
+    } else {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(KEY_SETTING)
+        .bind(key)
+        .execute(&state.db)
+        .await?;
+    }
+    ai_key_status(state).await
+}
+
 fn now_millis() -> i64 {
     SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map(|elapsed| elapsed.as_millis() as i64)
-    .unwrap_or(0)
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
 }
 async fn requests_in_window(state: &AppState) -> Result<i64, AppError> {
     let since = now_millis() - WINDOW_MS;
     let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM usage_log WHERE used_at >= ?1")
-    .bind(since)
-    .fetch_one(&state.db)
-    .await?;
+        .bind(since)
+        .fetch_one(&state.db)
+        .await?;
     Ok(count)
-    
 }
 #[derive(Serialize)]
-struct ChatRequest <'a> {
+struct ChatRequest<'a> {
     model: &'a str,
     messages: Vec<ChatMessage>,
 }
@@ -94,7 +190,11 @@ fn describe_failure(status: reqwest::StatusCode, body: &str) -> String {
         .and_then(|v| {
             v.get("error")
                 .and_then(|e| e.get("message").or(Some(e)))
-                .map(|m| m.as_str().map(str::to_string).unwrap_or_else(|| m.to_string()))
+                .map(|m| {
+                    m.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| m.to_string())
+                })
         })
         .unwrap_or_else(|| body.chars().take(300).collect());
 
@@ -129,21 +229,32 @@ pub async fn ai_chat(
         return Err(AppError::RateLimited);
     }
 
-    let key = api_key()?;
+    let route = route(&state.db).await?;
 
     let body = ChatRequest {
         model: resolve_model(model.as_deref()),
         messages,
     };
 
-    let response = http_client()?
-        .post("https://openrouter.ai/api/v1/chat/completions")
-        .header("Authorization", format!("Bearer {key}"))
+    let request = match &route {
+        Route::Direct { key } => http_client()?
+            .post(OPENROUTER_URL)
+            .header("Authorization", format!("Bearer {key}")),
+        Route::Proxy { url } => http_client()?.post(*url),
+    };
+
+    let response = request
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
         .await
-        .map_err(|e| if e.is_timeout() { AppError::AiTimeout } else { AppError::AiRequest })?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                AppError::AiTimeout
+            } else {
+                AppError::AiRequest
+            }
+        })?;
 
     let status = response.status();
     if !status.is_success() {

@@ -21,7 +21,7 @@
         onaddtogroup,
         onremovefromgroup
     }: {
-        onclose: () => void;
+        onclose: (reason?: 'backdrop') => void;
         onmute: (tabId: string) => void;
         onduplicate: (tabId: string) => void;
         oncloseothers: (tabId: string) => void;
@@ -42,6 +42,10 @@
             unlisten.then((off) => off());
         };
     });
+    
+    function onkeydown(e: KeyboardEvent) {
+        if (e.key === 'Escape') onclose();
+    }
 
     function run(action: (m: MenuState) => void) {
         const snapshot = menu ? { ...menu } : null;
@@ -51,8 +55,10 @@
     }
 </script>
 
+<svelte:window {onkeydown} />
+
 {#if menu}
-    <div class="scrim" role="presentation" onclick={onclose}></div>
+    <div class="scrim" role="presentation" onclick={() => onclose('backdrop')}></div>
     <div class="menu" role="menu" style:left="{menu.x}px" style:top="{menu.y}px">
         {#if menu.tabId}
             <button class="item" type="button" role="menuitem"

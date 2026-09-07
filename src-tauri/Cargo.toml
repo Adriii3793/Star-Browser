@@ -1,19 +1,15 @@
 [package]
 name = "star"
-version = "0.1.0"
+version = "1.1.1"
 description = "A minimalist AI browser"
 authors = ["Star Development Team"]
 edition = "2021"
 license = "MIT"
-homepage = "https://github.com/Adriii3793/Project-2k26"
-repository = "https://github.com/Adriii3793/Project-2k26"
+homepage = "https://github.com/Adriii3793/Star-Browser"
+repository = "https://github.com/Adriii3793/Star-Browser"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "star_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -22,7 +18,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "unstable"] }
-tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-window-state = "2"
@@ -36,6 +31,12 @@ url = "2"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1.53.1", features = ["sync", "time"] }
 
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+gtk = "0.18"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38"
 windows = { version = "0.61", features = [
@@ -43,4 +44,5 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }

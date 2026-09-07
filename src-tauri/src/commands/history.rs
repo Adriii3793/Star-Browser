@@ -19,12 +19,24 @@ pub struct HistoryEntry {
 
 fn now_millis() -> i64 {
     SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map(|elapsed| elapsed.as_millis() as i64)
-    .unwrap_or(0)
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
 }
 
-#[tauri::command] 
+fn canonical_url(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let Ok(parsed) = url::Url::parse(trimmed) else {
+        return trimmed.to_string();
+    };
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return trimmed.to_string();
+    }
+
+    parsed.to_string()
+}
+
+#[tauri::command]
 pub async fn record_visit(
     state: State<'_, AppState>,
     url: String,
@@ -34,8 +46,9 @@ pub async fn record_visit(
     if url.trim().is_empty() {
         return Ok(());
     }
+    let url = canonical_url(&url);
 
-    sqlx::query(
+    let outcome = sqlx::query(
         "INSERT INTO history (url, title, query, visited_at, visit_count)
         VALUES (?1, ?2, ?3, ?4, 1)
         ON CONFLICT(url) DO UPDATE SET
@@ -49,16 +62,48 @@ pub async fn record_visit(
     .bind(query)
     .bind(now_millis())
     .execute(&state.db)
-    .await?;
+    .await;
 
+    match outcome {
+        Ok(_) => {
+            state.set_history_write_error(None);
+            Ok(())
+        }
+        Err(cause) => {
+            let error = AppError::from(cause);
+            state.set_history_write_error(Some(error.to_string()));
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn retitle_visit(
+    state: State<'_, AppState>,
+    url: String,
+    title: String,
+) -> Result<(), AppError> {
+    if url.trim().is_empty() || title.trim().is_empty() {
+        return Ok(());
+    }
+    sqlx::query("UPDATE history SET title = ?2 WHERE url = ?1")
+        .bind(canonical_url(&url))
+        .bind(title)
+        .execute(&state.db)
+        .await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn history_write_error(state: State<'_, AppState>) -> Result<Option<String>, AppError> {
+    Ok(state.history_write_error())
 }
 
 #[tauri::command]
 pub async fn recent_history(
     state: State<'_, AppState>,
     limit: i64,
-) -> Result<Vec<HistoryEntry>, AppError>{
+) -> Result<Vec<HistoryEntry>, AppError> {
     let entries = sqlx::query_as::<_, HistoryEntry>(
         "SELECT id, url, title, query, visited_at, visit_count
         FROM history
@@ -109,15 +154,56 @@ pub async fn search_history(
 #[tauri::command]
 pub async fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
     sqlx::query("DELETE FROM history")
-    .execute(&state.db)
-    .await?;
+        .execute(&state.db)
+        .await?;
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::like_pattern;
+    use super::{canonical_url, like_pattern};
+
+    #[test]
+    fn spellings_of_one_destination_collapse_to_a_single_key() {
+        assert_eq!(canonical_url("https://example.com"), "https://example.com/");
+        assert_eq!(canonical_url("https://example.com/"), "https://example.com/");
+        assert_eq!(canonical_url("HTTPS://Example.COM/"), "https://example.com/");
+        assert_eq!(canonical_url("https://example.com:443/"), "https://example.com/");
+        assert_eq!(canonical_url("http://example.com:80/a"), "http://example.com/a");
+        assert_eq!(canonical_url("  https://example.com/  "), "https://example.com/");
+    }
+
+    #[test]
+    fn destinations_that_really_differ_stay_apart() {
+        assert_ne!(
+            canonical_url("https://example.com/watch?v=1"),
+            canonical_url("https://example.com/watch?v=2")
+        );
+        assert_ne!(
+            canonical_url("https://example.com/"),
+            canonical_url("https://www.example.com/")
+        );
+        assert_ne!(
+            canonical_url("http://example.com/"),
+            canonical_url("https://example.com/")
+        );
+        assert_ne!(
+            canonical_url("https://example.com/a"),
+            canonical_url("https://example.com/b")
+        );
+        assert_ne!(
+            canonical_url("https://example.com/app#/inbox"),
+            canonical_url("https://example.com/app#/sent")
+        );
+    }
+
+    #[test]
+    fn anything_unparseable_or_non_http_is_stored_exactly_as_given() {
+        assert_eq!(canonical_url("about:blank"), "about:blank");
+        assert_eq!(canonical_url("file:///tmp/x.html"), "file:///tmp/x.html");
+        assert_eq!(canonical_url("not a url"), "not a url");
+    }
 
     #[test]
     fn escapes_like_metacharacters_so_they_match_literally() {

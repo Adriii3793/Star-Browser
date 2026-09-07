@@ -3,9 +3,9 @@
     "app": {
         "windows": [
             {
-                "title": "star",
-                "width": 800,
-                "height": 600,
+                "title": "Star",
+                "width": 1280,
+                "height": 800,
                 "resizable": true,
                 "alwaysOnTop": false,
                 "minWidth": 800,
@@ -13,7 +13,8 @@
                 "decorations": false,
                 "transparent": true,
                 "shadow": true,
-                "dragDropEnabled": false
+                "dragDropEnabled": false,
+                "visible": false
             }
         ]
     }

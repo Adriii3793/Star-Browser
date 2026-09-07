@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { ArrowLeft } from '@lucide/svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { platform as osPlatform } from '@tauri-apps/plugin-os';
+  import { detectOs, type OS } from '$lib/services/platform';
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { LogicalSize } from '@tauri-apps/api/dpi';
+  import { LogicalSize, type PhysicalPosition, type PhysicalSize } from '@tauri-apps/api/dpi';
   import Setup from '$lib/comp/setup/setup.svelte';
   import SetupProgress from '$lib/comp/setup/SetupProgress.svelte';
   import BroswerShell from '$lib/comp/browser/BroswerShell.svelte';
@@ -36,9 +37,7 @@
   }
 
   let setupDone = $state<boolean | null>(null);
-  let os = $state<'macos' | 'windows' | 'linux'>(
-    typeof navigator === 'undefined' ? 'windows' : detectOs()
-  );
+  let os = $state<OS>(detectOs());
   let squared = $derived(windowChrome.squared);
   let showSetupChrome = $derived(setupDone === false && setup.dotIndex >= 0);
 
@@ -55,43 +54,69 @@
     });
   }
 
+  const SETUP_SIZE = { width: 880, height: 640 };
+  const DEFAULT_SIZE = { width: 1280, height: 800 };
+
+  let preSetupGeometry: { size: PhysicalSize; position: PhysicalPosition } | null = null;
+  let preSetupMaximized = false;
+  let setupWindowModeExited = false;
+
   async function enterSetupWindowMode() {
     const win = getCurrentWindow();
     try {
+      preSetupMaximized = await win.isMaximized();
+      const scale = await win.scaleFactor();
+      const size = await win.innerSize();
+      const logical = size.toLogical(scale);
+      const isSetupBox =
+        Math.abs(logical.width - SETUP_SIZE.width) < 2 &&
+        Math.abs(logical.height - SETUP_SIZE.height) < 2;
+      preSetupGeometry =
+        preSetupMaximized || isSetupBox
+          ? null
+          :
+            { size, position: await win.outerPosition() };
+    } catch {
+      preSetupGeometry = null;
+      preSetupMaximized = false;
+    }
+    try {
       await win.unmaximize().catch(() => {});
+      await win.setSize(new LogicalSize(SETUP_SIZE.width, SETUP_SIZE.height));
+      await win.center();
       await win.setMaximizable(false);
       await win.setResizable(false);
-      await win.setSize(new LogicalSize(880, 640));
-      await win.center();
     } catch {
     }
   }
 
   async function exitSetupWindowMode() {
+    if (setupWindowModeExited) return;
+    setupWindowModeExited = true;
+
     const win = getCurrentWindow();
     try {
       await win.setResizable(true);
       await win.setMaximizable(true);
+      if (preSetupGeometry) {
+        await win.setSize(preSetupGeometry.size);
+        await win.setPosition(preSetupGeometry.position);
+      } else {
+        await win.setSize(new LogicalSize(DEFAULT_SIZE.width, DEFAULT_SIZE.height));
+        await win.center();
+      }
+      if (preSetupMaximized) await win.maximize();
+      preSetupGeometry = null;
+      await windowChrome.refresh();
     } catch {
     }
   }
 
-  function completeSetup() {
+  async function completeSetup() {
+    await exitSetupWindowMode();
     setupDone = true;
-    void exitSetupWindowMode();
   }
 
-  function detectOs(): 'macos' | 'windows' | 'linux' {
-    try {
-      const p = osPlatform();
-      return p === 'macos' ? 'macos' : p === 'linux' ? 'linux' : 'windows';
-    } catch {
-      const ua = navigator.userAgent;
-      if (/Macintosh|Mac OS X/.test(ua)) return 'macos';
-      if (/Linux|X11/.test(ua) && !/Android/.test(ua)) return 'linux';
-      return 'windows';
-    }
-  }
 
   onMount(async () => {
     os = detectOs();
@@ -108,6 +133,11 @@
     applySavedTheme();
     if (setupDone === false) await enterSetupWindowMode();
   })
+
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.classList.toggle('window-rounded', !squared);
+  });
 
   onDestroy(() => windowChrome.destroy());
 </script>
@@ -127,9 +157,7 @@
         disabled={!setup.canGoBack}
         onclick={() => setup.back()}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M19 12H5M12 19l-7-7 7-7" />
-        </svg>
+        <ArrowLeft aria-hidden="true" />
       </button>
     {/snippet}
 
@@ -184,6 +212,11 @@
     padding: 0;
     height: 100%;
     overflow: hidden;
+    background: var(--bg-chrome, #faf7f7);
+  }
+
+  :global(html.window-rounded),
+  :global(html.window-rounded body) {
     background: transparent;
   }
 
@@ -274,7 +307,7 @@
     outline-offset: 2px;
   }
 
-  .back svg {
+  .back :global(svg) {
     width: 16px;
     height: 16px;
     fill: none;
@@ -309,7 +342,7 @@
     border: none;
     background: transparent;
     outline: none;
-    z-index: 9999;
+    z-index: 10002;
     -webkit-app-region: no-drag;
   }
 
@@ -318,8 +351,8 @@
   .rz-w { top: 12px; bottom: 12px; left: 0; width: 8px; cursor: ew-resize; }
   .rz-e { top: 12px; bottom: 12px; right: 0; width: 8px; cursor: ew-resize; }
 
-  .rz-nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize; z-index: 10000; }
-  .rz-ne { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize; z-index: 10000; }
-  .rz-sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize; z-index: 10000; }
-  .rz-se { bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize; z-index: 10000; }
+  .rz-nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize; z-index: 10003; }
+  .rz-ne { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize; z-index: 10003; }
+  .rz-sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize; z-index: 10003; }
+  .rz-se { bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize; z-index: 10003; }
 </style>

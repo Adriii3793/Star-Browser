@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ChevronLeft, ChevronRight, RotateCcw, Star, Check, Link, Volume2, Sparkles } from '@lucide/svelte';
     import { setup } from '$lib/stores/setup.svelte';
 
     let { url = '', onnavigate, onchat, chatOpen = false, onback, onforward, onreload,
@@ -76,13 +77,13 @@
 
     <div class="nav-controls">
         <button class="nav-btn" type="button" aria-label="Back" onclick={onback} disabled={!canBack}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6l6 6" /></svg>
+            <ChevronLeft size={14} strokeWidth={2.5} />
         </button>
         <button class="nav-btn" type="button" aria-label="Forward" onclick={onforward} disabled={!canForward}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6l-6 6" /></svg>
+            <ChevronRight size={14} strokeWidth={2.5} />
         </button>
         <button class="nav-btn" type="button" aria-label="Reload" onclick={onreload}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5" /><path d="M4.5 9a8 8 0 1 1 1.5 8" /></svg>
+            <RotateCcw size={14} strokeWidth={2.5} />
         </button>
     </div>
 
@@ -101,19 +102,13 @@
             placeholder="Search with {setup.engine.name}"
         />
         <button class="favorite-toggle" class:active={favoriteActive} type="button" aria-label={favoriteActive ? 'Remove from favorites' : 'Add to favorites'} title={favoriteActive ? 'Remove from favorites' : 'Add to favorites'} onclick={onfavorite}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill={favoriteActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 17.3l-5.6 3.2 1.1-6.3L2 9.1l6.3-.9L12 2.5l3.7 5.7 6.3.9-5.5 4.1 1.1 6.3z" />
-            </svg>
+            <Star size={13} fill={favoriteActive ? 'currentColor' : 'none'} />
         </button>
         <button class="copy" class:copied type="button" aria-label={copied ? 'Link copied' : 'Copy link'} title={copied ? 'Copied!' : 'Copy link'} onclick={copyLink} disabled={!url}>
             {#if copied}
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7" /></svg>
+                <Check size={13} strokeWidth={2.5} />
             {:else}
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 17H7A5 5 0 0 1 7 7h2" />
-                    <path d="M15 7h2a5 5 0 1 1 0 10h-2" />
-                    <path d="M8 12h8" />
-                </svg>
+                <Link size={13} strokeWidth={2.2} />
             {/if}
         </button>
     </div>
@@ -121,17 +116,11 @@
     <div class="actions">
         {#if mediaActive}
         <button class="media" class:active={mediaOpen} type="button" aria-label="Media playing in tabs" aria-pressed={mediaOpen} title={mediaOpen ? 'Hide media controls' : 'Media controls'} onclick={onmedia}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M11 5L6 9H2v6h4l5 4V5z" />
-                <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-                <path d="M18.5 5.5a9.5 9.5 0 0 1 0 13" />
-            </svg>
+            <Volume2 size={14} strokeWidth={2.2} />
         </button>
         {/if}
         <button class="chat" class:active={chatOpen} type="button" aria-label={chatOpen ? 'Close AI Chat' : 'Open AI Chat'} aria-pressed={chatOpen} onclick={onchat}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z" />
-            </svg>
+            <Sparkles size={14} strokeWidth={2.5} />
             <span>AI Chat</span>
         </button>
     </div>
@@ -191,7 +180,7 @@
         }
         .copy:hover:not(:disabled) { background: var(--hover); color: var(--text); }
         .copy.copied { color: var(--success); }
-        .copy svg { display: block; }
+        .copy :global(svg) { display: block; }
         .copy:disabled { opacity: .45; cursor: default; }
         .favorite-toggle {
             display: inline-flex;
@@ -210,7 +199,7 @@
         .favorite-toggle.active { color: var(--accent); }
         .favorite-toggle.active:hover { color: var(--accent-hover, var(--accent)); }
         .favorite-toggle:active { transform: scale(.9); }
-        .favorite-toggle svg { display:block; }
+        .favorite-toggle :global(svg) { display:block; }
         .media {
             display: inline-flex; align-items: center; justify-content: center;
             width: 32px; height: 32px; padding: 0;

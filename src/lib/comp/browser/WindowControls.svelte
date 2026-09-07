@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
-	import { platform as detectPlatform } from '@tauri-apps/plugin-os';
 	import { windowChrome } from '$lib/stores/windowChrome.svelte';
-
-	type Platform = 'macos' | 'windows' | 'linux';
+	import { detectOs, type OS as Platform } from '$lib/services/platform';
 
 	interface Props {
 		platform?: Platform;
@@ -17,7 +15,7 @@
 
 	let { platform, background, maximizable = true, onminimize, onmaximize, onclose }: Props = $props();
 
-	let os = $state<Platform>(untrack(() => platform) ?? 'windows');
+	let os = $state<Platform>(untrack(() => platform) ?? detectOs());
 	let maximized = $derived(windowChrome.maximized);
 
 	let root = $state<HTMLElement | undefined>(undefined);
@@ -127,16 +125,7 @@
 	});
 
 	function resolvePlatform(): Platform {
-		if (platform) return platform;
-		try {
-			const p = detectPlatform();
-			return p === 'macos' ? 'macos' : p === 'linux' ? 'linux' : 'windows';
-		} catch {
-			const ua = navigator.userAgent;
-			if (/Macintosh|Mac OS X/.test(ua)) return 'macos';
-			if (/Linux/.test(ua) && !/Android/.test(ua)) return 'linux';
-			return 'windows';
-		}
+		return platform ?? detectOs();
 	}
 
 	function appWindow() {

@@ -18,6 +18,19 @@ export interface PageContext {
     truncated: boolean;
 }
 
+export interface AiKeyStatus {
+    source: 'user' | 'environment' | 'embedded' | 'proxy' | 'none';
+    hint: string | null;
+}
+
+export function aiKeyStatus(): Promise<AiKeyStatus> {
+    return call('ai_key_status');
+}
+
+export function setAiKey(key: string): Promise<AiKeyStatus> {
+    return call('set_ai_key', { key });
+}
+
 export function aiChat(messages: ChatMessage[], model?: string | null): Promise<string> {
     return call('ai_chat', { messages, model: model ?? null });
 }

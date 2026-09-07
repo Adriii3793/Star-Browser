@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { X } from '@lucide/svelte';
+
     let {
         label = 'Close',
         title = label,
@@ -13,9 +15,7 @@
 </script>
 
 <button class="close-btn" class:sm={size === 'sm'} type="button" aria-label={label} {title} {onclick}>
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
+    <X aria-hidden="true" />
 </button>
 
 <style>
@@ -56,7 +56,7 @@
         outline-offset: 2px;
     }
 
-    .close-btn svg {
+    .close-btn :global(svg) {
         width: 16px;
         height: 16px;
         fill: none;
@@ -66,7 +66,7 @@
         stroke-linejoin: round;
     }
 
-    .close-btn.sm svg {
+    .close-btn.sm :global(svg) {
         width: 14px;
         height: 14px;
     }

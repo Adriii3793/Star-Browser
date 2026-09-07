@@ -2,6 +2,7 @@
     import ButtonArrow from '../ui/ButtonArrow.svelte';
     import StepShell from './StepShell.svelte';
     import { setup } from '$lib/stores/setup.svelte';
+    import EngineLogo from '../ui/EngineLogo.svelte';
     import { PRESET_THEMES, SYSTEM_THEME, theme as themeStore } from '$lib/stores/theme.svelte';
 
     let { onfinish, busy = false }: { onfinish: () => void; busy?: boolean } = $props();
@@ -20,11 +21,6 @@
     );
     let initial = $derived((setup.data.name.trim()[0] ?? '?').toUpperCase());
 
-    let brokenLogos = $state<string[]>([]);
-    let logoOk = $derived(!brokenLogos.includes(engine.id));
-    function markLogoBroken() {
-        if (!brokenLogos.includes(engine.id)) brokenLogos = [...brokenLogos, engine.id];
-    }
 </script>
 
 <StepShell
@@ -46,13 +42,7 @@
             >
                 <p class="greet">Good afternoon, {setup.data.name || 'there'}</p>
                 <div class="searchbar">
-                    <span class="badge sm" class:lettered={!logoOk} style={logoOk ? '' : `background:${engine.color}`}>
-                        {#if logoOk}
-                            <img src={engine.logo} alt="" onerror={markLogoBroken} />
-                        {:else}
-                            {engine.initial}
-                        {/if}
-                    </span>
+                    <EngineLogo {engine} size={20} radius={6} />
                     <span class="ph">Search {engine.name}</span>
                 </div>
             </div>
@@ -60,13 +50,7 @@
 
         <div class="side">
             <section class="row-card" style="--stagger:60ms">
-                <span class="badge" class:lettered={!logoOk} style={logoOk ? '' : `background:${engine.color}`}>
-                    {#if logoOk}
-                        <img src={engine.logo} alt="" onerror={markLogoBroken} />
-                    {:else}
-                        {engine.initial}
-                    {/if}
-                </span>
+                <EngineLogo {engine} size={40} radius={12} />
                 <span class="meta">
                     <span class="label">Search engine</span>
                     <span class="value">{engine.name}</span>
@@ -208,7 +192,6 @@
         border-color: var(--border-strong);
     }
 
-    .badge,
     .avatar {
         display: flex;
         align-items: center;
@@ -219,41 +202,6 @@
         color: #ffffff;
         font-weight: 700;
         overflow: hidden;
-    }
-
-    .badge {
-        border-radius: 12px;
-        font-size: 16px;
-        background: var(--field, #f7f1ec);
-        padding: 6px;
-    }
-
-    .badge.lettered {
-        padding: 0;
-    }
-
-    .badge img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        border-radius: 4px;
-    }
-
-    .badge.sm {
-        width: 20px;
-        height: 20px;
-        border-radius: 6px;
-        font-size: 10px;
-        padding: 3px;
-        background: var(--field, #f7f1ec);
-    }
-
-    .badge.sm.lettered {
-        padding: 0;
-    }
-
-    .badge.sm img {
-        border-radius: 2px;
     }
 
     .avatar {

@@ -1,5 +1,6 @@
 <script lang="ts">
     import TabBar, { type TabGroup } from './TabBar.svelte';
+    import { Check, CircleAlert, Download, X, ChevronDown, ChevronLeft, ChevronRight, Globe, Pencil } from '@lucide/svelte';
     import AddressBar from './AddressBar.svelte';
     import WindowControls from './WindowControls.svelte';
     import Aipanel from '../ai/Aipanel.svelte';
@@ -25,12 +26,15 @@
         onTabTitleChanged,
         onTabShortcut,
         onTabAudioChanged,
+        onTabIconChanged,
+        onTabLoadChanged,
         onDownloadStarted,
         onDownloadFinished,
         openMenuWebview,
         closeMenuWebview,
         openOverlayWebview,
         warmOverlayWebview,
+        warmMenuWebview,
         closeOverlayWebview,
         tabBack,
         tabForward,
@@ -45,40 +49,41 @@
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { listen, emit } from '@tauri-apps/api/event';
     import { onMount, untrack } from 'svelte';
-    import { platform as detectPlatform } from '@tauri-apps/plugin-os';
+    import { detectOs, type OS } from '$lib/services/platform';
+    import { clearSitePermissions } from '$lib/services/sitePermissions';
+    import { continuesNavigation, heldVisitAddress } from '$lib/services/visits';
     import { windowChrome } from '$lib/stores/windowChrome.svelte';
     import { setup } from '$lib/stores/setup.svelte';
     import { imageLuminance, PRESET_THEMES, theme, themeVars } from '$lib/stores/theme.svelte';
     import { loadTabSession, saveTabSession, type TabSession } from '$lib/services/tabs';
-    import { domainOf } from '$lib/services/favicon';
-    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number; groupId?: string; muted?: boolean; audible?: boolean; hadAudio?: boolean;}
-    type OS = 'macos' | 'windows' | 'linux';
-    let os = $state<OS>('windows');
+    import { contiguousGroups, dropFromGroup, liveGroups, reorder, withGroup } from '$lib/services/tabGroups';
+    import { domainOf, originOf } from '$lib/services/favicon';
+    import { isStaleDismissal, suppressesReopen } from '$lib/services/popup';
+    import { aiKeyStatus, setAiKey, type AiKeyStatus } from '$lib/services/ai';
+    interface TabData {id: string; title: string; url: string; searchText?: string; hasNavigated?: boolean; hist: string[]; cursor: number; zoom: number; groupId?: string; muted?: boolean; audible?: boolean; hadAudio?: boolean; iconUrl?: string; iconOrigin?: string;}
+    let os = $state<OS>(detectOs());
 
     let restored = $state(false);
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
+    let viewportSize = $state({ width: 0, height: 0 });
 
     onMount(() => {
-        try {
-            const p = detectPlatform();
-            os = p === 'macos' ? 'macos' : p === 'linux' ? 'linux' : 'windows';
-        } catch {
-            const ua = navigator.userAgent;
-            os = /Macintosh|Mac OS X/.test(ua)
-                ? 'macos'
-                : /Linux|X11/.test(ua) && !/Android/.test(ua)
-                  ? 'linux'
-                  : 'windows';
-        }
-
         void restoreTabSession();
-        void warmOverlayWebview(new DOMRect(0, 0, window.innerWidth, window.innerHeight)).catch(() => {});
+        let viewportFrame = 0;
+        const syncViewport = () => {
+            cancelAnimationFrame(viewportFrame);
+            viewportFrame = requestAnimationFrame(() => {
+                viewportSize = {
+                    width: document.documentElement.clientWidth || window.innerWidth,
+                    height: document.documentElement.clientHeight || window.innerHeight
+                };
+            });
+        };
+        window.addEventListener('resize', syncViewport, { passive: true });
+        syncViewport();
+        void warmOverlayWebview().catch(() => {});
+        void warmMenuWebview().catch(() => {});
         const captureFs = (e: KeyboardEvent) => {
-            if (e.key === 'F11' || e.code === 'F11' || (e as KeyboardEvent & { keyCode?: number }).keyCode === 122) {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                void toggleFullscreen();
-            }
             if (e.key === 'Escape' && windowChrome.fullscreen) {
                 e.preventDefault();
                 void windowChrome.setFullscreen(false);
@@ -89,6 +94,7 @@
         const unlistenClose = getCurrentWindow().onCloseRequested(async () => {
             clearTimeout(saveTimer);
             window.removeEventListener('keydown', captureFs, true);
+            for (const tabId of [...pendingVisits.keys()]) commitVisit(tabId);
             await Promise.race([
                 saveTabSession(buildTabSession()).catch(() => {}),
                 new Promise((resolve) => setTimeout(resolve, 800))
@@ -98,7 +104,8 @@
         return () => {
             unlistenClose.then((off) => off());
             window.removeEventListener('keydown', captureFs, true);
-            windowChrome.destroy();
+            cancelAnimationFrame(viewportFrame);
+            window.removeEventListener('resize', syncViewport);
         };
     });
 
@@ -112,6 +119,7 @@
     ]);
     let activeId = $state(initialTabId);
     let tabGroups = $state<TabGroup[]>([]);
+    let aiKey = $state<AiKeyStatus | null>(null);
     const groupColors = ['#7b9eea', '#d98880', '#70ad7d', '#d6a85d', '#a78bcb', '#56aeb2'];
     let showChat = $state(false);
     $effect(() => {
@@ -285,6 +293,7 @@
 
     function resetAllData() {
         history.clear();
+        clearSitePermissions();
         ai.reset();
         memory.clear();
         reading.clear();
@@ -360,12 +369,22 @@
     }
 
     let contentEl = $state<HTMLElement>();
+    let chromeEl = $state<HTMLElement>();
     let menuBtnEl = $state<HTMLElement>();
     let profileBtnEl = $state<HTMLElement>();
         const openedViews = new SvelteSet<string>();
     const currentFavoriteActive = $derived(Boolean(activeTab?.url && favorites.hasUrl(activeTab.url)));
-    function currentBounds() {
-        return contentEl?.getBoundingClientRect();
+    function currentBounds(): DOMRect | undefined {
+        const rect = contentEl?.getBoundingClientRect();
+        if (!rect) return undefined;
+        const chrome = chromeEl?.getBoundingClientRect();
+        if (!chrome || chrome.bottom <= rect.top) return rect;
+        return new DOMRect(
+            rect.x,
+            chrome.bottom,
+            rect.width,
+            Math.max(1, rect.bottom - chrome.bottom)
+        );
     }
 
     function applyBounds(id: string): Promise<void> {
@@ -433,7 +452,10 @@
             applyBounds(nextActive)
                 .then(() => {
                     if (token !== visibilityToken) return;
-                    return showTabWebview(nextActive).then(() => markShown(nextActive));
+                    return showTabWebview(nextActive).then(() => {
+                        markShown(nextActive);
+                        reapplyTabBounds();
+                    });
                 })
                 .catch(() => {});
         }
@@ -442,7 +464,8 @@
     let menuAnchor = {x:6,y: 44};
 
     function sendMenuState() {
-        emit('menu-position', menuAnchor);
+        menuShowSeq += 1;
+        emit('menu-position', { ...menuAnchor, seq: menuShowSeq });
         emit('menu-zoom-sync', {zoom: Math.round((activeTab?.zoom ?? 1) *100)});
         emit('menu-theme', utilityVars());
         emit('menu-state', { fullscreen: isFullscreen });
@@ -466,8 +489,13 @@
         sendThemeToUtilityViews();
     });
 
+    let surfaceDismissedAt = 0;
+    function dismissedByFocusLoss(): boolean {
+        return suppressesReopen(surfaceDismissedAt, Date.now());
+    }
+
     async function openMenu() {
-        if (menuOpen) {
+        if (menuOpen || dismissedByFocusLoss()) {
             closeMenu();
             return;
         }
@@ -479,14 +507,15 @@
                 : 6,
             y: btn ? btn.bottom + 6 : 44
         };
-        const rect = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
         menuOpen = true;
-        await openMenuWebview(rect);
-       sendMenuState();
+        await openMenuWebview();
+        sendMenuState();
     }
 
     function closeMenu() {
         menuOpen = false;
+        menuShowSeq += 1;
+        emit('menu-hide', { seq: menuShowSeq });
         closeMenuWebview();
     }
 
@@ -503,14 +532,20 @@
         return null;
     }
 
+    let overlayShowSeq = 0;
+    let menuShowSeq = 0;
+
     function sendOverlayShow(kind: OverlayKind) {
         if (!kind) return;
+        overlayShowSeq += 1;
         emit('overlay-show', {
             kind,
+            seq: overlayShowSeq,
             themeId: theme.preference,
             searchEngine: setup.data.searchEngine,
             ...(kind === 'settings'
                 ? {
+                      aiKey,
                       background: setup.data.background,
                     customBg: setup.data.customBg ?? null,
                     customSurface: setup.data.customSurface ?? null,
@@ -524,25 +559,47 @@
         if (kind === 'tabmenu') pushTabMenuState();
         if (kind === 'groupedit') pushGroupEditState();
         if (kind === 'downloads') pushDownloadsState();
+        if (kind === 'settings') void refreshAiKey();
     }
 
     let overlayToken = 0;
     let overlayTask: Promise<void> = Promise.resolve();
     $effect(() => {
         const kind = currentOverlayKind();
+        void viewportSize.width;
+        void viewportSize.height;
         const token = ++overlayToken;
-        const rect = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
         overlayTask = overlayTask
             .catch(() => {})
             .then(async () => {
                 if (token !== overlayToken) return;
                 if (!kind) {
+                    overlayShowSeq += 1;
+                    emit('overlay-show', { kind: null, seq: overlayShowSeq });
                     await closeOverlayWebview();
                     return;
                 }
-                await openOverlayWebview(rect);
+                await openOverlayWebview();
                 if (token === overlayToken) sendOverlayShow(kind);
             })
+            .catch(() => {});
+    });
+
+    let menuPlacedFor: string | null = null;
+    $effect(() => {
+        const width = viewportSize.width;
+        const height = viewportSize.height;
+        if (!menuOpen || !width || !height) {
+            menuPlacedFor = null;
+            return;
+        }
+        const size = `${width}x${height}`;
+        const first = menuPlacedFor === null;
+        if (menuPlacedFor === size) return;
+        menuPlacedFor = size;
+        if (first) return;
+        void openMenuWebview()
+            .then(() => sendMenuState())
             .catch(() => {});
     });
 
@@ -598,6 +655,15 @@
         });
     }
 
+    async function refreshAiKey() {
+        try {
+            aiKey = await aiKeyStatus();
+        } catch {
+            aiKey = null;
+        }
+        if (showSettings) emit('overlay-ai-key', aiKey);
+    }
+
     function pushTabMenuState() {
         if (!tabMenu) return;
         const tab = tabMenu.tabId ? tabs.find((t) => t.id === tabMenu!.tabId) : null;
@@ -639,7 +705,9 @@
     }
 
     $effect(() => {
-        const unlistenClose = listen('overlay-close', () => {
+        const unlistenClose = listen<{ seq?: number; reason?: string }>('overlay-close', (e) => {
+            if (isStaleDismissal(e.payload?.seq, overlayShowSeq)) return;
+            if (e.payload?.reason === 'blur') surfaceDismissedAt = Date.now();
             showSettings = false;
             showHistory = false;
             showDownloads = false;
@@ -707,7 +775,7 @@
         const unlistenDownloadsRemove = listen<{ id: string }>('overlay-downloads-remove', (e) => {
             if (e.payload?.id) downloads.remove(e.payload.id);
         });
-        const unlistenSettings = listen<{ theme?: string; searchEngine?: string; adblock?: boolean; showFavorites?: boolean; showRecent?: boolean; skipUngroupedTabs?: boolean; aiProvider?: string; background?: string | null; customBg?: string; customSurface?: string; customAccent?: string }>('settings-changed', (e) => {
+        const unlistenSettings = listen<{ theme?: string; searchEngine?: string; adblock?: boolean; showFavorites?: boolean; showRecent?: boolean; skipUngroupedTabs?: boolean; aiProvider?: string; aiApiKey?: string; background?: string | null; customBg?: string; customSurface?: string; customAccent?: string }>('settings-changed', (e) => {
             const next = e.payload ?? {};
             let changed = false;
 
@@ -727,6 +795,15 @@
 
             if (typeof next.aiProvider === 'string' && next.aiProvider !== prefs.aiProvider) {
                 prefs.selectProvider(next.aiProvider as typeof prefs.aiProvider);
+            }
+
+            if (typeof next.aiApiKey === 'string') {
+                void setAiKey(next.aiApiKey)
+                    .then((status) => {
+                        aiKey = status;
+                        emit('overlay-ai-key', status);
+                    })
+                    .catch(() => void refreshAiKey());
             }
 
             if (next.theme === 'custom' && next.customBg && next.customSurface && next.customAccent) {
@@ -799,8 +876,14 @@
             else if (action === 'print') printActiveTab();
             else if (action === 'fullscreen') toggleFullscreen();
         });
-        const unlistenClose = listen('menu-close', () => closeMenu());
-        const unlistenReady = listen('menu-ready', () => sendMenuState());
+        const unlistenClose = listen<{ seq?: number; reason?: string }>('menu-close', (e) => {
+            if (isStaleDismissal(e.payload?.seq, menuShowSeq)) return;
+            if (e.payload?.reason === 'blur') surfaceDismissedAt = Date.now();
+            closeMenu();
+        });
+        const unlistenReady = listen('menu-ready', () => {
+            if (menuOpen) sendMenuState();
+        });
         return () => {
             unlistenAction.then((off) => off());
             unlistenClose.then((off) => off());
@@ -808,20 +891,46 @@
         };
     });
 
+    const shortcutRanAt = new Map<string, number>();
+    const SHORTCUT_DEDUPE_MS = 300;
+
+    function runShortcutAction(action: string) {
+        const now = Date.now();
+        if (now - (shortcutRanAt.get(action) ?? 0) < SHORTCUT_DEDUPE_MS) return;
+        shortcutRanAt.set(action, now);
+
+        if (action === 'zoomin') zoomIn();
+        else if (action === 'zoomout') zoomOut();
+        else if (action === 'zoomreset') zoomReset();
+        else if (action === 'newtab') newTab();
+        else if (action === 'closetab') closeTab(activeId);
+        else if (action === 'history') showHistory = true;
+        else if (action === 'print') ctrlP();
+        else if (action === 'fullscreen') void toggleFullscreen();
+        else if (action === 'search') focusAddressBar();
+        else if (action === 'chat') showChat = !showChat;
+        else if (action === 'cleardata') showHistory = true;
+        else if (action === 'reload') reloadActiveTab();
+    }
+
+    $effect(() => {
+        const unlisten = listen<string>('global-shortcut', async (e) => {
+            try {
+                const win = getCurrentWindow();
+                if (!(await win.isVisible())) await win.show();
+                await win.setFocus();
+            } catch {}
+            runShortcutAction(e.payload);
+        });
+        return () => {
+            unlisten.then((off) => off());
+        };
+    });
+
     $effect(() => {
         const unlisten = onTabShortcut(({ tabId, action }) => {
             if (tabId !== activeId) return;
-            if (action === 'zoomin') zoomIn();
-            else if (action === 'zoomout') zoomOut();
-            else if (action === 'zoomreset') zoomReset();
-            else if (action === 'newtab') newTab();
-            else if (action === 'closetab') closeTab(activeId);
-            else if (action === 'history') showHistory = true;
-            else if (action === 'print') ctrlP();
-            else if (action === 'fullscreen') void toggleFullscreen();
-            else if (action === 'search') focusAddressBar();
-            else if (action === 'chat') showChat = !showChat;
-            else if (action === 'cleardata') showHistory = true;
+            runShortcutAction(action);
         });
         return () => {
             unlisten.then((off) => off());
@@ -846,21 +955,25 @@
         await windowChrome.refresh();
     }
 
-    async function toggleFullscreen() {
-        const win = getCurrentWindow();
-        try {
-            const next = !(await win.isFullscreen());
-            await win.setFullscreen(next);
+    let fullscreenTransition: Promise<void> | null = null;
+
+    function toggleFullscreen(): Promise<void> {
+        if (fullscreenTransition) return fullscreenTransition;
+
+        fullscreenTransition = (async () => {
+            const next = !windowChrome.fullscreen;
+            await windowChrome.setFullscreen(next);
             await windowChrome.refresh();
             sendMenuState();
-        } catch (e) {
-            console.error('toggleFullscreen failed, falling back:', e);
-            try {
-                await windowChrome.setFullscreen(!windowChrome.fullscreen);
-            } catch (e2) {
-                console.error('windowChrome.setFullscreen fallback also failed:', e2);
-            }
-        }
+        })()
+            .catch((error) => {
+                console.error('toggleFullscreen failed:', error);
+            })
+            .finally(() => {
+                fullscreenTransition = null;
+            });
+
+        return fullscreenTransition;
     }
 
     function printActiveTab() {
@@ -893,38 +1006,159 @@
     const navPending = new Map<string, number>();
     const NAV_WINDOW_MS = 4000;
 
+    function sameOrigin(a: string, b: string) {
+        try { return new URL(a).origin === new URL(b).origin; } catch { return false; }
+    }
+
+    function pointTabAt(tab: TabData, url: string) {
+        if (tab.url && !sameOrigin(tab.url, url) && (tab.audible || tab.hadAudio)) {
+            tab.audible = false;
+            tab.hadAudio = false;
+        }
+        tab.url = url;
+    }
+
+    const VISIT_SETTLE_MS = REDIRECT_WINDOW_MS;
+
+    const loadingTabs = new Set<string>();
+    const navigatingSince = new Map<string, number>();
+    const VISIT_HOLD_MAX_MS = 20000;
+    const NAVIGATION_GRACE_MS = 8000;
+
+    function shellNavigating(tabId: string): boolean {
+        const startedAt = navigatingSince.get(tabId);
+        if (startedAt === undefined) return false;
+        if (Date.now() - startedAt > NAVIGATION_GRACE_MS) {
+            navigatingSince.delete(tabId);
+            return false;
+        }
+        return true;
+    }
+
+    type PendingVisit = {
+        url: string;
+        query: string | null;
+        queuedAt: number;
+        timer: ReturnType<typeof setTimeout>;
+    };
+    const pendingVisits = new Map<string, PendingVisit>();
+    const pendingQuery = new Map<string, string | null>();
+    const recordedUrl = new Map<string, string>();
+    const replayedUrl = new Map<string, string>();
+
+    function queueVisit(tabId: string, url: string) {
+        const existing = pendingVisits.get(tabId);
+        if (existing) clearTimeout(existing.timer);
+        const query = pendingQuery.get(tabId) ?? null;
+        pendingVisits.set(tabId, {
+            url: heldVisitAddress(existing, url, query),
+            query,
+            queuedAt: existing?.queuedAt ?? Date.now(),
+            timer: setTimeout(() => settleVisit(tabId), VISIT_SETTLE_MS)
+        });
+    }
+
+    function settleVisit(tabId: string) {
+        const visit = pendingVisits.get(tabId);
+        if (!visit) return;
+        const settling = loadingTabs.has(tabId) || shellNavigating(tabId);
+        if (settling && Date.now() - visit.queuedAt < VISIT_HOLD_MAX_MS) {
+            clearTimeout(visit.timer);
+            visit.timer = setTimeout(() => settleVisit(tabId), VISIT_SETTLE_MS);
+            return;
+        }
+        commitVisit(tabId);
+    }
+
+    function commitVisit(tabId: string) {
+        const visit = pendingVisits.get(tabId);
+        if (!visit) return;
+        clearTimeout(visit.timer);
+        pendingVisits.delete(tabId);
+        pendingQuery.delete(tabId);
+        if (recordedUrl.get(tabId) === visit.url) return;
+        recordedUrl.set(tabId, visit.url);
+        const tab = tabs.find((t) => t.id === tabId);
+        history.record(visit.url, tab?.title || domainOf(visit.url), visit.query);
+    }
+
     $effect(() => {
-        const unlisten = onTabUrlChanged(({ tabId, url }) => {
+        const unlisten = onTabUrlChanged(({ tabId, url, replaced }) => {
             if (url === 'about:blank' || url.startsWith('data:')) return;
             const tab = tabs.find((t) => t.id === tabId);
             if (!tab) return;
-            const sameOrigin = (a: string, b: string) => {
-                try { return new URL(a).origin === new URL(b).origin; } catch { return false; }
-            };
-            if (tab.url && tab.url !== url && !sameOrigin(tab.url, url) && (tab.audible || tab.hadAudio)) {
-                tab.audible = false;
-                tab.hadAudio = false;
-            }
-            tab.url = url;
+            pointTabAt(tab, url);
             void reading.capture(url, tabId);
+
+            if (replaced) {
+                if (tab.cursor >= 0) tab.hist[tab.cursor] = url;
+                const settling = pendingVisits.get(tabId);
+                if (settling) settling.url = heldVisitAddress(settling, url, settling.query);
+                return;
+            }
+
+            const wasNavigating = shellNavigating(tabId);
 
             const pending = navPending.get(tabId);
             if (pending !== undefined) {
                 navPending.delete(tabId);
+                navigatingSince.delete(tabId);
                 if (Date.now() - pending < NAV_WINDOW_MS) return;
+            }
+
+            const replayed = replayedUrl.get(tabId);
+            if (replayed !== undefined) {
+                replayedUrl.delete(tabId);
+                if (replayed === url) {
+                    recordedUrl.set(tabId, url);
+                    return;
+                }
             }
 
             if (tab.hist[tab.cursor] === url) return;
             const sinceAction = Date.now() - (lastActionAt.get(tabId) ?? 0);
-            if (sinceAction < REDIRECT_WINDOW_MS && tab.cursor >= 0) {
+            const hop = continuesNavigation(wasNavigating, sinceAction, REDIRECT_WINDOW_MS);
+            if (hop && tab.cursor >= 0) {
                 tab.hist[tab.cursor] = url;
-                history.record(url, tab.title, null);
+                queueVisit(tabId, url);
                 return;
             }
+            commitVisit(tabId);
             tab.hist = tab?.hist.slice(0, tab.cursor + 1);
             tab.hist.push(url);
             tab.cursor = tab?.hist.length - 1;
-            history.record(url, tab.title, null);
+            queueVisit(tabId, url);
+        });
+        return () => {
+            unlisten.then((off) => off());
+        };
+    });
+
+    $effect(() => {
+        const unlisten = onTabLoadChanged(({ tabId, loading }) => {
+            if (loading) {
+                loadingTabs.add(tabId);
+                return;
+            }
+            loadingTabs.delete(tabId);
+            navigatingSince.delete(tabId);
+            const visit = pendingVisits.get(tabId);
+            if (visit) {
+                clearTimeout(visit.timer);
+                visit.timer = setTimeout(() => settleVisit(tabId), VISIT_SETTLE_MS);
+            }
+        });
+        return () => {
+            unlisten.then((off) => off());
+        };
+    });
+
+    $effect(() => {
+        const unlisten = onTabIconChanged(({ tabId, url }) => {
+            const tab = tabs.find((t) => t.id === tabId);
+            if (!tab) return;
+            tab.iconUrl = url;
+            tab.iconOrigin = originOf(tab.url ?? '');
         });
         return () => {
             unlisten.then((off) => off());
@@ -964,6 +1198,9 @@
             if (!tab || !title.trim()) return;
             if (navPending.has(tabId)) return;
             tab.title = title.trim();
+
+            const recorded = recordedUrl.get(tabId);
+            if (recorded && recorded === tab.url) void history.retitle(recorded, tab.title);
         });
         return () => {
             unlisten.then((off) => off());
@@ -1000,19 +1237,20 @@
         if (i === -1) return;
         const wasLast = tabs.length === 1;
         const remainingTabs = tabs.filter((_, idx) => idx !== i);
+        
         if (!wasLast && activeId === id) {
-            const nextActive = remainingTabs[Math.min(i, remainingTabs.length - 1)];
-            activeId = nextActive.id;
-            if (openedViews.has(nextActive.id) && nextActive.hasNavigated) {
-                await applyBounds(nextActive.id).catch(() => {});
-                await showTabWebview(nextActive.id).then(() => markShown(nextActive.id)).catch(() => {});
-            }
+            activeId = remainingTabs[Math.min(i, remainingTabs.length - 1)].id;
         }
 
         tabs = remainingTabs;
-        tabGroups = tabGroups.filter((group) => tabs.some((tab) => tab.groupId === group.id));
+        pruneGroups(remainingTabs);
+        commitVisit(id);
+        recordedUrl.delete(id);
+        replayedUrl.delete(id);
         lastActionAt.delete(id);
         navPending.delete(id);
+        loadingTabs.delete(id);
+        navigatingSince.delete(id);
         if (openedViews.has(id)) {
             openedViews.delete(id);
             hiddenViews.delete(id);
@@ -1031,6 +1269,7 @@
         if (tab && tab.hasNavigated && tab.url && !openedViews.has(id)) {
             const rect = currentBounds();
             if (rect) {
+                replayedUrl.set(id, tab.url);
                 await openTabWebview(id, tab.url, rect, tabCorners).catch(() => {});
                 openedViews.add(id);
                 if (tab.zoom !== 1) setTabZoomWebview(id, tab.zoom);
@@ -1071,22 +1310,12 @@
         }
     }
     function pruneGroups(list: TabData[]) {
-        tabGroups = tabGroups.filter((group) => list.some((tab) => tab.groupId === group.id));
+        tabGroups = liveGroups(tabGroups, list);
     }
     function moveTab(from: number, to: number) {
-        const newTabs = [...tabs];
-        const [tab] = newTabs.splice(from, 1);
-        newTabs.splice(to, 0, tab);
-
-        const before = newTabs[to - 1]?.groupId;
-        const after = newTabs[to + 1]?.groupId;
-        let groupId: string | undefined;
-        if (before && before === after) groupId = before;
-        else if (tab.groupId && (before === tab.groupId || after === tab.groupId)) groupId = tab.groupId;
-        newTabs[to] = { ...tab, groupId };
-
-        tabs = newTabs;
-        pruneGroups(newTabs);
+        const nextTabs = reorder(tabs, from, to);
+        tabs = nextTabs;
+        pruneGroups(nextTabs);
     }
     function newGroupId(): string {
         const id = crypto.randomUUID();
@@ -1101,7 +1330,7 @@
         const targetId = tabId ?? activeId;
         if (!tabs.some((tab) => tab.id === targetId)) return;
         const id = newGroupId();
-        const nextTabs = tabs.map((tab) => tab.id === targetId ? { ...tab, groupId: id } : tab);
+        const nextTabs = withGroup(tabs, targetId, id);
         tabs = nextTabs;
         pruneGroups(nextTabs);
         openGroupRename(id, anchor?.x ?? 100, anchor?.y ?? 80);
@@ -1117,14 +1346,7 @@
         activeId = id;
     }
     function addExistingTabToGroup(tabId: string, groupId: string) {
-        const tab = tabs.find((t) => t.id === tabId);
-        if (!tab || tab.groupId === groupId) return;
-
-        const nextTabs = tabs.filter((t) => t.id !== tabId);
-        let lastMember = -1;
-        nextTabs.forEach((t, i) => { if (t.groupId === groupId) lastMember = i; });
-        nextTabs.splice(lastMember + 1, 0, { ...tab, groupId });
-
+        const nextTabs = withGroup(tabs, tabId, groupId);
         tabs = nextTabs;
         pruneGroups(nextTabs);
     }
@@ -1150,8 +1372,15 @@
             y: Math.max(8, Math.min(y, window.innerHeight - height - 8))
         };
     }
+    function stepTabOutOfGroup(tabId: string) {
+        const index = tabs.findIndex((tab) => tab.id === tabId);
+        if (index === -1) return;
+        const nextTabs = dropFromGroup(tabs, index);
+        tabs = nextTabs;
+        pruneGroups(nextTabs);
+    }
     function ungroupTab(tabId: string) {
-        const nextTabs = tabs.map((tab) => tab.id === tabId ? { ...tab, groupId: undefined } : tab);
+        const nextTabs = withGroup(tabs, tabId, undefined);
         tabs = nextTabs;
         pruneGroups(nextTabs);
     }
@@ -1160,14 +1389,12 @@
         const target = tabs.find((tab) => tab.id === targetId);
         if (!source || !target || source.id === target.id) return;
 
-        const groupId = target.groupId ?? newGroupId();
-
-        const nextTabs = tabs
-            .filter((tab) => tab.id !== source.id)
-            .map((tab) => tab.id === target.id ? { ...tab, groupId } : tab);
-        let lastMember = -1;
-        nextTabs.forEach((tab, i) => { if (tab.groupId === groupId) lastMember = i; });
-        nextTabs.splice(lastMember + 1, 0, { ...source, groupId });
+        const joining = target.groupId;
+        const groupId = joining ?? newGroupId();
+        const seeded = joining
+            ? tabs
+            : tabs.map((tab) => tab.id === target.id ? { ...tab, groupId } : tab);
+        const nextTabs = withGroup(seeded, source.id, groupId);
 
         tabs = nextTabs;
         pruneGroups(nextTabs);
@@ -1215,14 +1442,16 @@
             }));
             const activeIndex = Math.min(Math.max(session.activeIndex, 0), restoredTabs.length - 1);
             const active = restoredTabs[activeIndex];
+            const ordered = contiguousGroups(restoredTabs);
 
-            tabs = restoredTabs;
-            tabGroups = restoredGroups;
+            tabs = ordered;
+            tabGroups = liveGroups(restoredGroups, ordered);
             activeId = active.id;
 
             if (active.hasNavigated && active.url) {
                 const rect = currentBounds();
                 if (rect) {
+                    replayedUrl.set(active.id, active.url);
                     await openTabWebview(active.id, active.url, rect, tabCorners).catch(() => {});
                     openedViews.add(active.id);
                     if (active.zoom !== 1) setTabZoomWebview(active.id, active.zoom);
@@ -1243,7 +1472,7 @@
         }, 700);
     });
 
-    function navigate(input: string) {
+    async function navigate(input: string) {
         const tab = tabs.find((t) => t.id === activeId);
         if (!tab || !input.trim()) return;
         const isUrl = input.includes('.') && !input.includes(' ');
@@ -1253,14 +1482,22 @@
             tab.hist = tab.hist.slice(0, tab.cursor +1 );
             tab.hist.push(url);
             tab.cursor = tab.hist.length -1;
-            tab.url = url;
+            pointTabAt(tab, url);
             tab.searchText = input;
             tab.hasNavigated = true;
             tab.title = fallbackTitle(url, input);
-            history.record(url, input, isUrl ? null : input);
+            commitVisit(tab.id);
+            pendingQuery.set(tab.id, isUrl ? null : input);
+            navigatingSince.set(tab.id, Date.now());
+            queueVisit(tab.id, url);
 
             lastActionAt.set(tab.id, Date.now());
-            const rect = currentBounds();
+            let rect: DOMRect | undefined;
+            for (let attempt = 0; attempt < 6; attempt++) {
+                rect = currentBounds();
+                if (rect && rect.width > 1 && rect.height > 1) break;
+                await new Promise<void>((res) => requestAnimationFrame(() => res()));
+            }
             if (rect) {
                 if (openedViews.has(tab.id)) {
                     navigateTabWebview(tab.id, url);
@@ -1271,7 +1508,6 @@
                     if (tab.muted) setTabMutedWebview(tab.id, true);
                 }
             }
-
     }
 
     function setZoom(factor: number) {
@@ -1293,6 +1529,12 @@
             e.stopImmediatePropagation();
             e.stopPropagation();
             void toggleFullscreen();
+            return;
+        }
+
+        if (e.key === 'F5' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+            e.preventDefault();
+            reloadActiveTab();
             return;
         }
 
@@ -1323,12 +1565,18 @@
         else if (key === 't') { e.preventDefault(); newTab(); }
         else if (key === 'h') { e.preventDefault(); showHistory = true; }
         else if (key === 'p') { e.preventDefault(); ctrlP(); }
+        else if (key === 'r') { e.preventDefault(); reloadActiveTab(); }
         else if (key === 'w') { e.preventDefault(); closeTab(activeId); }
     }
 
     function ctrlP() {
         if (showChat) aiNewChatToken += 1;
         else printActiveTab();
+    }
+
+    function reloadActiveTab() {
+        if (!activeTab?.hasNavigated) return;
+        void tabReload(activeId);
     }
     function goBack() {
         const tab = activeTab;
@@ -1343,9 +1591,10 @@
 
         tab.cursor -= 1;
         const target = tab.hist[tab.cursor];
-        tab.url = target;
+        pointTabAt(tab, target);
         tab.title = domainOf(target);
         lastActionAt.set(tab.id, Date.now());
+        navigatingSince.set(tab.id, Date.now());
         navPending.set(tab.id, Date.now());
         tabBack(tab.id);
     }
@@ -1356,7 +1605,7 @@
 
         if (tab.cursor === -1) {
             tab.cursor = 0;
-            tab.url = tab.hist[0];
+            pointTabAt(tab, tab.hist[0]);
             tab.title = domainOf(tab.hist[0]);
             tab.hasNavigated = true;
             return;
@@ -1364,9 +1613,10 @@
 
         tab.cursor += 1;
         const target = tab.hist[tab.cursor];
-        tab.url = target;
+        pointTabAt(tab, target);
         tab.title = domainOf(target);
         lastActionAt.set(tab.id, Date.now());
+        navigatingSince.set(tab.id, Date.now());
         navPending.set(tab.id, Date.now());
         tabForward(tab.id);
     }
@@ -1390,11 +1640,11 @@
                 <div class="download-toast" class:complete={toast.state === 'complete'} class:failed={toast.state === 'failed'}>
                     <span class="download-icon" aria-hidden="true">
                         {#if toast.state === 'complete'}
-                            <svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 7" /></svg>
+                            <Check aria-hidden="true" />
                         {:else if toast.state === 'failed'}
-                            <svg viewBox="0 0 24 24"><path d="M12 8v5M12 16h.01" /><circle cx="12" cy="12" r="9" /></svg>
+                            <CircleAlert aria-hidden="true" />
                         {:else}
-                            <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 20h14" /></svg>
+                            <Download aria-hidden="true" />
                         {/if}
                     </span>
                     <span class="download-copy">
@@ -1402,7 +1652,7 @@
                         <span class="download-file">{toast.fileName}</span>
                     </span>
                     <button class="download-close" type="button" aria-label="Dismiss download notification" onclick={() => dismissDownloadToast(toast.id)}>
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                        <X aria-hidden="true" />
                     </button>
                 </div>
             {/each}
@@ -1418,15 +1668,13 @@
                 aria-expanded={menuOpen}
                 onclick={openMenu}
             >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M6 9l6 6l6 -6" />
-                </svg>
+                <ChevronDown size={16} strokeWidth={2.5} />
             </button>
         </div>
     {/snippet}
 
     {#snippet profileButton()}
-        <button bind:this={profileBtnEl} class="top-profile" type="button" title="Profile" aria-haspopup="menu" aria-expanded={profileOpen} onclick={() => (profileOpen = !profileOpen)}>
+        <button bind:this={profileBtnEl} class="top-profile" type="button" title="Profile" aria-haspopup="menu" aria-expanded={profileOpen} onclick={() => (profileOpen = !profileOpen && !dismissedByFocusLoss())}>
             <span class="top-avatar">
                 {#if setup.data.avatar}
                     <img src={setup.data.avatar} alt="" />
@@ -1448,7 +1696,7 @@
                 {/each}
                 {#if favorites.items.length > 3}
                     <button class="favorite-more" type="button" aria-label={favBarExpanded ? 'Show less' : 'Show more favorites'} onclick={() => (favBarExpanded = !favBarExpanded)}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d={favBarExpanded ? 'M15 6l-6 6l6 6' : 'M9 6l6 6l-6 6'} /></svg>
+                        {#if favBarExpanded}<ChevronLeft size={12} strokeWidth={2.5} />{:else}<ChevronRight size={12} strokeWidth={2.5} />{/if}
                     </button>
                 {/if}
             </div>
@@ -1474,6 +1722,8 @@
             onnew={newTab}
             onreorder={moveTab}
             ongroupdrop={groupDroppedTabs}
+            onungroup={ungroupTab}
+            onstepoutofgroup={stepTabOutOfGroup}
             onaddtogroup={addTabToGroup}
             oneditgroup={openGroupRename}
             onmute={toggleMuteTab}
@@ -1489,7 +1739,7 @@
             <WindowControls platform={os} />
         {/if}
     </div>
-    <div class="addressbar-wrap">
+    <div class="addressbar-wrap" bind:this={chromeEl}>
         <AddressBar
             url={activeTab?.hasNavigated ? (activeTab?.url || activeTab?.searchText || '') : ''}
             onnavigate={navigate}
@@ -1497,10 +1747,10 @@
             chatOpen={showChat}
             mediaActive={mediaTabs.length > 0}
             mediaOpen={miniPlayerOpen}
-            onmedia={() => (miniPlayerOpen = !miniPlayerOpen)}
+            onmedia={() => (miniPlayerOpen = !miniPlayerOpen && !dismissedByFocusLoss())}
             onback={goBack}
             onforward={goForward}
-            onreload={() => activeTab?.hasNavigated && tabReload(activeId)}
+            onreload={reloadActiveTab}
             canBack={(activeTab?.cursor ?? -1) > -1}
             canForward={(activeTab?.cursor ?? -1) < (activeTab?.hist.length ?? 0) - 1}
             favoriteActive={currentFavoriteActive}
@@ -1512,13 +1762,7 @@
         <div class="content" bind:this={contentEl}>
             {#if activeTab?.hasNavigated}
             <div class="placeholder">
-                <i class="ti ti-world"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" />
-    <path d="M3.6 9h16.8" />
-    <path d="M3.6 15h16.8" />
-    <path d="M11.5 3a17 17 0 0 0 0 18" />
-    <path d="M12.5 3a17 17 0 0 0 0 18" />
-</svg></i>
+                <Globe size={18} />
                 <code>{activeTab.url}</code>
             </div>
             {:else}
@@ -1561,14 +1805,10 @@
                                 {#if favEditing}
                                 <div class="fav-controls">
                                     <button class="fav-ctl" type="button" aria-label="Edit favorite" onclick={() => openEditFavorite(fav)}>
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
-                                        </svg>
+                                        <Pencil size={12} />
                                     </button>
                                     <button class="fav-ctl remove" type="button" aria-label="Remove favorite" onclick={() => favorites.remove(fav.id)}>
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M18 6 6 18M6 6l12 12" />
-                                        </svg>
+                                        <X size={12} />
                                     </button>
                                 </div>
                                 {/if}
@@ -1690,7 +1930,7 @@
     }
     .download-toast.complete .download-icon { color: var(--success); background: color-mix(in srgb, var(--success) 18%, transparent); }
     .download-toast.failed .download-icon { color: var(--danger); background: color-mix(in srgb, var(--danger) 18%, transparent); }
-    .download-icon svg, .download-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+    .download-icon :global(svg), .download-close :global(svg) { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
 
     .download-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
     .download-title { font-size: 13px; font-weight: 700; line-height: 1.3; }
@@ -1741,11 +1981,11 @@
         background: var(--hover);
     }
 
-    .menubtn svg {
+    .menubtn :global(svg) {
         transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
     }
 
-    .menubtn.open svg {
+    .menubtn.open :global(svg) {
         transform: rotate(180deg);
     }
 
@@ -1836,7 +2076,7 @@
     .favorite-more:hover { background: var(--hover); }
 
     @media (prefers-reduced-motion: reduce) {
-        .menubtn svg {
+        .menubtn :global(svg) {
             transition: none;
         }
         .download-toast {
@@ -1849,7 +2089,7 @@
         min-height: 0; 
         display: flex; 
         overflow: hidden;
-        background: var(--bg-chrome);
+        background: var(--bg-page);
         border-bottom-left-radius: var(--win-radius, 0px);
         border-bottom-right-radius: var(--win-radius, 0px);
         padding: 0 var(--win-edge, 0px) var(--win-edge, 0px);
@@ -1857,7 +2097,7 @@
 
     .content {
        flex: 1; 
-       background: var(--bg-chrome);
+       background: var(--bg-page);
        margin: 0; 
        border-radius: 0;
        display:flex; 
@@ -1877,7 +2117,7 @@
         .favorite-pages { display: none; }
         .drag-region { min-width: 4px; }
     }
-    .placeholder { text-align: center; color: var(--text-muted); margin: auto;}    .placeholder i {font-size: 32px;}
+    .placeholder { text-align: center; color: var(--text-muted); margin: auto;}
     .placeholder code {
         font-size: 12px; color: var(--text-soft);
         background: var(--field); padding: 3px 8px; border-radius: 6px;
@@ -1898,6 +2138,7 @@
         flex: 1;
         overflow-y: auto;
         padding: 48px 32px 56px;
+        background-color: var(--bg-page);
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;

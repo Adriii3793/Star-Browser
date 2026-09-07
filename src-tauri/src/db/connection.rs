@@ -1,28 +1,50 @@
-use std::path::Path;
-use sqlx::sqlite::{
-    SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
-};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
+use std::path::Path;
+use std::time::Duration;
 
 use crate::error::AppError;
 
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub async fn init(path: &Path) -> Result<SqlitePool, AppError> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    match open(path, SqliteJournalMode::Wal).await {
+        Ok(pool) => Ok(pool),
+        Err(wal_failure) => open(path, SqliteJournalMode::Truncate)
+            .await
+            .map_err(|_| wal_failure),
+    }
+}
+
+async fn open(path: &Path, journal_mode: SqliteJournalMode) -> Result<SqlitePool, AppError> {
     let options = SqliteConnectOptions::new()
         .filename(path)
         .create_if_missing(true)
-        .journal_mode(SqliteJournalMode::Wal)
+        .journal_mode(journal_mode)
         .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(BUSY_TIMEOUT)
         .foreign_keys(true);
 
     let pool = SqlitePoolOptions::new()
-    .max_connections(4)
-    .connect_with(options)
-    .await?;
+        .max_connections(4)
+        .connect_with(options)
+        .await?;
 
     sqlx::migrate!("./src/db/migrations").run(&pool).await?;
+    verify_writable(&pool).await?;
 
     Ok(pool)
-    
+}
+
+async fn verify_writable(pool: &SqlitePool) -> Result<(), AppError> {
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    sqlx::query("ROLLBACK").execute(&mut *conn).await?;
+    Ok(())
 }
 #[cfg(test)]
 mod tests {
@@ -48,11 +70,56 @@ mod tests {
                     .fetch_optional(&pool),
             )
             .expect("query should succeed");
-            assert!(found.is_some(), "table `{table}` is missing after migration");
+            assert!(
+                found.is_some(),
+                "table `{table}` is missing after migration"
+            );
         }
 
         tauri::async_runtime::block_on(pool.close());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_data_directory_that_cannot_be_created_fails_the_open() {
+        let mut blocker = std::env::temp_dir();
+        blocker.push(format!("star-blocked-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&blocker);
+        let _ = std::fs::remove_file(&blocker);
+        std::fs::write(&blocker, b"not a directory").expect("should create the blocking file");
+
+        let result = tauri::async_runtime::block_on(init(&blocker.join("star.db")));
+
+        let _ = std::fs::remove_file(&blocker);
+        assert!(
+            result.is_err(),
+            "a database under an uncreatable directory must not produce a usable pool"
+        );
+    }
+
+    #[test]
+    fn reopening_an_existing_database_works() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("star-reopen-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let first = tauri::async_runtime::block_on(init(&path)).expect("first open should work");
+        tauri::async_runtime::block_on(
+            sqlx::query("INSERT INTO history (url, title, query, visited_at, visit_count) \
+                         VALUES ('https://example.test/', 'Example', NULL, 1, 1)")
+                .execute(&first),
+        )
+        .expect("the probe proved this would work, so it must");
+        tauri::async_runtime::block_on(first.close());
+
+        let second = tauri::async_runtime::block_on(init(&path)).expect("second open should work");
+        let (count,): (i64,) =
+            tauri::async_runtime::block_on(sqlx::query_as("SELECT COUNT(*) FROM history").fetch_one(&second))
+                .expect("query should succeed");
+        tauri::async_runtime::block_on(second.close());
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(count, 1, "the row written on the first run must survive");
     }
 
     #[test]
@@ -84,9 +151,9 @@ mod tests {
 
         match result {
             Err(sqlx::migrate::MigrateError::VersionMissing(3)) => {}
-            other => panic!(
-                "expected VersionMissing(3) when 003_usage.sql is absent, got {other:?}"
-            ),
+            other => {
+                panic!("expected VersionMissing(3) when 003_usage.sql is absent, got {other:?}")
+            }
         }
         let _ = std::fs::remove_file(&path);
     }

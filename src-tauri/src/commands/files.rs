@@ -34,6 +34,16 @@ pub fn unique_download_path(app: &AppHandle, file_name: &str) -> PathBuf {
     candidate
 }
 
+const RESERVED_STEMS: &[&str] = &[
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+
+fn is_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    RESERVED_STEMS.iter().any(|r| stem.eq_ignore_ascii_case(r))
+}
+
 fn safe_file_name(raw: &str, fallback: &str) -> String {
     let cleaned: String = raw
         .chars()
@@ -45,9 +55,13 @@ fn safe_file_name(raw: &str, fallback: &str) -> String {
         .collect();
     let trimmed = cleaned.trim().trim_matches('.').trim();
     if trimmed.is_empty() {
-        fallback.to_string()
+        return fallback.to_string();
+    }
+    let capped: String = trimmed.chars().take(120).collect();
+    if is_reserved(&capped) {
+        format!("_{capped}")
     } else {
-        trimmed.chars().take(120).collect()
+        capped
     }
 }
 
@@ -78,9 +92,15 @@ mod tests {
             "C:\\Windows\\evil",
         ] {
             let safe = safe_file_name(hostile, "fallback");
-            assert!(!safe.contains('/'), "{safe:?} still contains a forward slash");
+            assert!(
+                !safe.contains('/'),
+                "{safe:?} still contains a forward slash"
+            );
             assert!(!safe.contains('\\'), "{safe:?} still contains a backslash");
-            assert!(!safe.contains(':'), "{safe:?} still contains a drive separator");
+            assert!(
+                !safe.contains(':'),
+                "{safe:?} still contains a drive separator"
+            );
             assert_eq!(
                 std::path::Path::new(&safe).components().count(),
                 1,
@@ -98,5 +118,18 @@ mod tests {
     #[test]
     fn keeps_ordinary_names_intact() {
         assert_eq!(safe_file_name("star-chat.md", "fallback"), "star-chat.md");
+    }
+
+    #[test]
+    fn escapes_windows_device_names_so_the_export_is_not_swallowed() {
+        for reserved in ["NUL", "nul.md", "CON.txt", "com1", "LPT9.md", "Aux"] {
+            let safe = safe_file_name(reserved, "fallback");
+            assert!(
+                safe.starts_with('_'),
+                "{reserved:?} produced {safe:?}, which Windows still treats as a device"
+            );
+        }
+        assert_eq!(safe_file_name("console.md", "fallback"), "console.md");
+        assert_eq!(safe_file_name("nulls.md", "fallback"), "nulls.md");
     }
 }

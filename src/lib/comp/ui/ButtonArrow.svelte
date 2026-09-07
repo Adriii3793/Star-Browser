@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { ArrowRight } from '@lucide/svelte';
+
     let {label = 'Continue', disabled = false, onclick}:
     { label?: string; disabled?:boolean;onclick?: () => void } = $props();
 
@@ -7,9 +9,8 @@
 <button class="arrow-btn" type="button"  {disabled} {onclick}>
     <span class="label">{label}</span>
     <span class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-			<path d="M16.172 11l-5.364-5.364 1.414-1.414L20 12l-7.778 7.778-1.414-1.414L16.172 13H4v-2z" fill="currentColor" />
-		</svg>
+        <ArrowRight aria-hidden="true" />
+    
     </span>
 </button>
 <style>
@@ -52,13 +53,13 @@
     .arrow-btn:hover:not(:disabled) .icon {
         width: calc(100% - 0.6em);
     }
-    .icon svg {
+    .icon :global(svg) {
         width: 1.1em;
         height: 1.1em;
         color: var(--accent, #80A4D4);
         transition: transform 0.3s ease;
     }
-    .arrow-btn:hover:not(:disabled) .icon svg {
+    .arrow-btn:hover:not(:disabled) .icon :global(svg) {
         transform: translateX(0.15em);
     }
     .arrow-btn:active:not(:disabled) .icon {
@@ -71,7 +72,7 @@
 
     @media (prefers-reduced-motion: reduce) {
         .icon,
-        .icon svg {
+        .icon :global(svg) {
             transition: none;
         }
     }

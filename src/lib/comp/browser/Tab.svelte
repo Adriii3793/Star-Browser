@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Favicon from '../ui/Favicon.svelte';
+	import { Volume2, VolumeX, X } from '@lucide/svelte';
 	let {
 		title,
 		index,
@@ -12,7 +13,9 @@
 		dragOffset = 0,
 		inGroup = false,
 		groupColor = '',
+		iconUrl = null,
 		groupTarget = false,
+		detaching = false,
 		onselect,
 		onclose,
 		onmutetoggle,
@@ -29,7 +32,9 @@
 		dragOffset?: number;
 		inGroup?: boolean;
 		groupColor?: string;
+		iconUrl?: string | null;
 		groupTarget?: boolean;
+		detaching?: boolean;
 		onselect: () => void;
 		onclose: () => void;
 		onmutetoggle?: () => void;
@@ -63,6 +68,7 @@
 	class:active
 	class:dragging
 	class:group-target={groupTarget}
+	class:detaching={detaching}
 	class:in-group={inGroup}
 	data-tab-index={index}
 	style:--group-color={groupColor || 'transparent'}
@@ -76,7 +82,7 @@
 	onpointerdown={press}
 	onkeydown={keydown}
 >
-	<span class="icon"><Favicon {url} size={15} /></span>
+	<span class="icon"><Favicon {url} {iconUrl} size={15} /></span>
 
 	{#if muted || audible}
 		<button
@@ -89,14 +95,9 @@
 			onclick={(e) => { e.stopPropagation(); onmutetoggle?.(); }}
 		>
 			{#if muted}
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l4-4v14z" />
-					<path d="M3 3l18 18" />
-				</svg>
+				<VolumeX aria-hidden="true" />
 			{:else}
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<path d="M15 8a5 5 0 0 1 0 8M17.7 5a9 9 0 0 1 0 14M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l4-4v14z" />
-				</svg>
+				<Volume2 aria-hidden="true" />
 			{/if}
 		</button>
 	{/if}
@@ -112,9 +113,7 @@
 			aria-label="Close tab"
 			onclick={close}
 		>
-			<svg viewBox="0 0 24 24" aria-hidden="true">
-				<path d="M18 6 6 18M6 6l12 12" />
-			</svg>
+			<X aria-hidden="true" />
 		</button>
 	{/if}
 </div>
@@ -179,6 +178,20 @@
 		animation: none;
 		cursor: grabbing;
 	}
+	
+	.tab.detaching {
+		--group-color: transparent;
+	}
+
+	.tab.detaching::after {
+		content: '';
+		position: absolute;
+		inset: -2px;
+		border: 2px dashed var(--border-strong, var(--accent));
+		border-radius: inherit;
+		pointer-events: none;
+		opacity: .8;
+	}
 
 	.tab.group-target::after {
 		content: '';
@@ -225,7 +238,7 @@
 		background: var(--hover);
 		opacity: 1;
 	}
-	.audio svg {
+	.audio :global(svg) {
 		width: 12px;
 		height: 12px;
 		fill: none;
@@ -264,7 +277,7 @@
 			opacity 150ms ease-in-out,
 			background-color 150ms ease-in-out;
 	}
-	.close svg {
+	.close :global(svg) {
 		width: 11px;
 		height: 11px;
 		fill: none;

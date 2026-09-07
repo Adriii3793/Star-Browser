@@ -2,6 +2,7 @@
 	import { ai } from '$lib/stores/ai.svelte';
 	import type { ChatMessage, ContentPart } from '$lib/services/ai';
 	import Loading from '../ui/Loading.svelte';
+	import { AlignLeft, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, EllipsisVertical, File as FileIcon, Pencil, Plus, RefreshCw, Send, Sparkle, Trash2, X } from '@lucide/svelte';
 	import { memory } from '$lib/stores/memory.svelte';
 	import { fetchPageContext, readTabPage, saveTextFile } from '$lib/services/ai';
 	import { renderMarkdown } from '$lib/services/markdown';
@@ -34,6 +35,8 @@
 	let dragActive = $state(false);
 	let dragDepth = 0;
 	let attachments = $state<Attachment[]>([]);
+	let attachmentGeneration = 0;
+	const attachmentReaders = new Set<FileReader>();
 	let panelWidth = $state(loadPanelWidth());
 	let resizing = $state(false);
 	let toast = $state<string | null>(null);
@@ -169,7 +172,15 @@
 	function loadHistoryFromStorage(): ChatEntry[] {
 		try {
 			const saved = localStorage.getItem(HISTORY_KEY);
-			return saved ? JSON.parse(saved) : [];
+			if (!saved) return [];
+			const parsed = JSON.parse(saved);
+			if (!Array.isArray(parsed)) return [];
+			return parsed.filter(
+				(c): c is ChatEntry =>
+					typeof c?.id === 'string' &&
+					typeof c?.title === 'string' &&
+					Array.isArray(c?.messages)
+			);
 		} catch (e) {
 			console.error('Failed to load chat history:', e);
 			return [];
@@ -295,7 +306,7 @@
 	function newConversation() {
 		ai.reset();
 		activeChatId = null;
-		attachments = [];
+		clearAttachments();
 		draft = '';
 		closeDrawer();
 	}
@@ -370,15 +381,17 @@
 	}
 
 	async function submit() {
+		if (ai.sending) return;
 		const text = draft.trim();
 		if (!text && attachments.length === 0) return;
 
 		const files = attachments;
 		draft = '';
-		attachments = [];
+		clearAttachments(false);
 
+		let sent = false;
 		if (files.length === 0) {
-			await ai.send(text, await currentPage());
+			sent = await ai.send(text, await currentPage());
 		} else {
 			const parts: ContentPart[] = [];
 			if (text) parts.push({ type: 'text', text });
@@ -395,14 +408,13 @@
 					parts.push({ type: 'text', text: `[attached video: ${file.name}]` });
 				}
 			}
-			await ai.send(parts, await currentPage());
+			sent = await ai.send(parts, await currentPage());
 		}
-		saveCurrentChat();
+		if (sent) saveCurrentChat();
 	}
 
 	async function sendPrompt(prompt: string) {
-		await ai.send(prompt, await currentPage());
-		saveCurrentChat();
+		if (await ai.send(prompt, await currentPage())) saveCurrentChat();
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -439,7 +451,11 @@
 		if (!isImage && !isVideo && !isText) return;
 
 		const reader = new FileReader();
+		const generation = attachmentGeneration;
+		attachmentReaders.add(reader);
 		reader.onload = (event) => {
+			attachmentReaders.delete(reader);
+			if (generation !== attachmentGeneration) return;
 			const data = event.target?.result as string;
 			attachments = [
 				...attachments,
@@ -450,7 +466,18 @@
 				}
 			];
 		};
+		reader.onerror = () => attachmentReaders.delete(reader);
+		reader.onabort = () => attachmentReaders.delete(reader);
 		reader.readAsDataURL(file);
+	}
+
+	function clearAttachments(abortReaders = true) {
+		attachmentGeneration += 1;
+		if (abortReaders) {
+			for (const reader of attachmentReaders) reader.abort();
+			attachmentReaders.clear();
+		}
+		attachments = [];
 	}
 
 	function collectFiles(dt: DataTransfer | null): File[] {
@@ -548,7 +575,7 @@
 	<header class="head">
 		<div class="group">
 			<button class="icon" type="button" aria-label="Star AI menu" title="Star AI" onclick={openDrawer}>
-				<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" /></svg>
+				<AlignLeft aria-hidden="true" />
 			</button>
 
 			<div class="model-wrap">
@@ -559,11 +586,9 @@
 					aria-expanded={modelOpen}
 					onclick={() => (modelOpen = !modelOpen)}
 				>
-					<svg class="spark" viewBox="0 0 24 24" aria-hidden="true">
-						<path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" />
-					</svg>
+					<Sparkle class="spark" aria-hidden="true" />
 					<span class="model-name">{activeProvider.name}</span>
-					<svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6" /></svg>
+					<ChevronDown class="caret" aria-hidden="true" />
 				</button>
 
 				{#if modelOpen}
@@ -582,7 +607,7 @@
 									<span class="menu-hint">{p.disclosure}</span>
 								</span>
 								{#if p.id === prefs.aiProvider}
-									<svg class="check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5l9 -9" /></svg>
+									<Check class="check" aria-hidden="true" />
 								{/if}
 							</button>
 						{/each}
@@ -593,7 +618,7 @@
 
 		<div class="group">
 			<button class="icon" type="button" aria-label="New chat" title="New chat ({newChatKey})" onclick={newConversation}>
-				<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+				<Plus aria-hidden="true" />
 			</button>
 			<button
 				class="icon"
@@ -603,11 +628,7 @@
 				disabled={ai.messages.length === 0}
 				onclick={exportConversation}
 			>
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<path d="M12 3v12" />
-					<path d="M8 11l4 4l4 -4" />
-					<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
-				</svg>
+				<Download aria-hidden="true" />
 			</button>
 			<CloseButton label="Close AI panel" onclick={onclose} />
 		</div>
@@ -665,10 +686,7 @@
 						{#if editingIndex !== i && messageText(message)}
 							<div class="actions">
 								<button type="button" class="act" title="Copy" aria-label="Copy message" onclick={() => copyMessage(message)}>
-									<svg viewBox="0 0 24 24" aria-hidden="true">
-										<rect x="9" y="9" width="11" height="11" rx="2" />
-										<path d="M5 15V5a2 2 0 0 1 2-2h10" />
-									</svg>
+									<Copy aria-hidden="true" />
 								</button>
 
 								{#if message.role === 'assistant'}
@@ -680,10 +698,7 @@
 										disabled={ai.sending}
 										onclick={() => retry(i)}
 									>
-										<svg viewBox="0 0 24 24" aria-hidden="true">
-											<path d="M20 11a8.1 8.1 0 0 0-15.5-2m-.5-5v5h5" />
-											<path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 5v-5h-5" />
-										</svg>
+										<RefreshCw aria-hidden="true" />
 									</button>
 
 									{#if (ai.alternatives[i]?.length ?? 0) > 1}
@@ -697,7 +712,7 @@
 												disabled={active === 0}
 												onclick={() => ai.selectAlternative(i, active - 1)}
 											>
-												<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6l6 6" /></svg>
+												<ChevronLeft aria-hidden="true" />
 											</button>
 											<span class="count">{active + 1}/{list.length}</span>
 											<button
@@ -707,7 +722,7 @@
 												disabled={active === list.length - 1}
 												onclick={() => ai.selectAlternative(i, active + 1)}
 											>
-												<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6l-6 6" /></svg>
+												<ChevronRight aria-hidden="true" />
 											</button>
 										</span>
 									{/if}
@@ -720,9 +735,7 @@
 										disabled={ai.sending}
 										onclick={() => startEdit(i, message)}
 									>
-										<svg viewBox="0 0 24 24" aria-hidden="true">
-											<path d="M4 20h4l10.5-10.5a2.828 2.828 0 1 0-4-4L4 16v4" />
-										</svg>
+										<Pencil aria-hidden="true" />
 									</button>
 								{/if}
 							</div>
@@ -757,15 +770,12 @@
 						<video controls><source src={attachment.data} /></video>
 					{:else}
 						<div class="text-file">
-							<svg viewBox="0 0 24 24" aria-hidden="true">
-								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-								<polyline points="14 2 14 8 20 8" />
-							</svg>
+							<FileIcon aria-hidden="true" />
 							<span>{attachment.name}</span>
 						</div>
 					{/if}
 					<button class="remove-attachment" type="button" onclick={() => removeAttachment(i)} title="Remove">
-						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+						<X aria-hidden="true" />
 					</button>
 				</div>
 			{/each}
@@ -774,7 +784,7 @@
 
 	<div class="composer" class:drag-over={dragActive}>
 		<button class="tool" type="button" aria-label="Attach file" title="Attach file" onclick={() => fileInputEl?.click()}>
-			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+			<Plus aria-hidden="true" />
 		</button>
 
 		<textarea
@@ -783,13 +793,12 @@
 			bind:value={draft}
 			onkeydown={handleKeydown}
 			onpaste={handlePaste}
+			disabled={ai.sending}
 		></textarea>
 
 		{#if draft.trim() || attachments.length > 0}
-			<button class="tool send" type="button" aria-label="Send" onclick={submit}>
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-				</svg>
+			<button class="tool send" type="button" aria-label="Send" disabled={ai.sending} onclick={submit}>
+				<Send aria-hidden="true" />
 			</button>
 		{/if}
 	</div>
@@ -827,7 +836,7 @@
 					<h2>Star AI</h2>
 				{:else}
 					<button class="back" type="button" aria-label="Back" onclick={() => (drawerView = 'menu')}>
-						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6l6 6" /></svg>
+						<ChevronLeft aria-hidden="true" />
 					</button>
 					<h2>AI memory</h2>
 				{/if}
@@ -837,16 +846,13 @@
 			{#if drawerView === 'menu'}
 				<div class="drawer-actions">
 					<button class="pill" type="button" onclick={newConversation}>
-						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+						<Plus aria-hidden="true" />
 						<span>New chat</span>
 						<kbd>{newChatKey}</kbd>
 					</button>
 
 					<button class="pill" type="button" onclick={() => (drawerView = 'memory')}>
-						<svg viewBox="0 0 24 24" aria-hidden="true">
-							<path d="M9 3a3 3 0 0 0 -3 3v0a3 3 0 0 0 -3 3a3 3 0 0 0 1.5 2.6M9 3a3 3 0 0 1 6 0M9 3v18" />
-							<path d="M15 3a3 3 0 0 1 3 3a3 3 0 0 1 3 3a3 3 0 0 1 -1.5 2.6M15 21v-9" />
-						</svg>
+						<Brain aria-hidden="true" />
 						<span>AI memory</span>
 						<span class="badge">{memory.items.length}</span>
 					</button>
@@ -884,33 +890,22 @@
 											aria-expanded={menuFor === chat.id}
 											onclick={() => (menuFor = menuFor === chat.id ? null : chat.id)}
 										>
-											<svg viewBox="0 0 24 24" aria-hidden="true">
-												<circle cx="12" cy="5" r="1.4" />
-												<circle cx="12" cy="12" r="1.4" />
-												<circle cx="12" cy="19" r="1.4" />
-											</svg>
+											<EllipsisVertical aria-hidden="true" />
 										</button>
 									{/if}
 
 									{#if menuFor === chat.id}
 										<div class="menu row-menu" transition:fade>
 											<button class="menu-item" type="button" onclick={() => startRename(chat)}>
-												<svg viewBox="0 0 24 24" aria-hidden="true">
-													<path d="M4 20h4l10.5-10.5a2.828 2.828 0 1 0-4-4L4 16v4" />
-												</svg>
+												<Pencil aria-hidden="true" />
 												<span>Rename</span>
 											</button>
 											<button class="menu-item" type="button" onclick={() => downloadChat(chat)}>
-												<svg viewBox="0 0 24 24" aria-hidden="true">
-													<path d="M12 3v12" /><path d="M8 11l4 4l4 -4" />
-													<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
-												</svg>
+												<Download aria-hidden="true" />
 												<span>Download</span>
 											</button>
 											<button class="menu-item danger" type="button" onclick={() => deleteChat(chat.id)}>
-												<svg viewBox="0 0 24 24" aria-hidden="true">
-													<path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
-												</svg>
+												<Trash2 aria-hidden="true" />
 												<span>Delete</span>
 											</button>
 										</div>
@@ -935,7 +930,7 @@
 							<div class="mem-item">
 								<span>{m.text}</span>
 								<button class="kebab" type="button" aria-label="Forget" onclick={() => memory.remove(m.id)}>
-									<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+									<X aria-hidden="true" />
 								</button>
 							</div>
 						{/each}
@@ -949,7 +944,7 @@
 						onkeydown={(e) => e.key === 'Enter' && addMemory()}
 					/>
 					<button class="tool send" type="button" aria-label="Save memory" onclick={addMemory}>
-						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+						<Plus aria-hidden="true" />
 					</button>
 				</div>
 			{/if}
@@ -976,7 +971,7 @@
 		background: var(--bg-page, #fff);
 		box-shadow: 0 8px 32px var(--hover);
 		overflow: hidden;
-		font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+		font-family: var(--font-ui);
 		transition: border-color 0.2s ease;
 	}
 
@@ -1040,7 +1035,7 @@
 	}
 	.icon:hover { background: var(--field, #f7f1ec); color: var(--text, #4a3a2e); }
 	.icon:disabled { opacity: 0.45; cursor: default; }
-	.icon svg {
+	.icon :global(svg) {
 		width: 18px;
 		height: 18px;
 		fill: none;
@@ -1069,7 +1064,7 @@
 	}
 	.model-chip:hover { border-color: var(--border-strong); }
 	.model-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.model-chip .spark {
+	.model-chip :global(.spark) {
 		width: 14px;
 		height: 14px;
 		flex: 0 0 auto;
@@ -1078,7 +1073,7 @@
 		stroke-width: 1.6;
 		stroke-linejoin: round;
 	}
-	.model-chip .caret {
+	.model-chip :global(.caret) {
 		width: 13px;
 		height: 13px;
 		flex: 0 0 auto;
@@ -1120,7 +1115,7 @@
 	.menu-item:hover { background: var(--field, #f7f1ec); }
 	.menu-item.selected { color: var(--accent, #80a4d4); }
 	.menu-item.danger { color: #c0392b; }
-	.menu-item svg {
+	.menu-item :global(svg) {
 		width: 15px;
 		height: 15px;
 		flex: 0 0 auto;
@@ -1133,7 +1128,7 @@
 	.menu-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 	.menu-title { font-weight: 500; }
 	.menu-hint { font-size: 11px; color: var(--text-muted, #ac8064); }
-	.check {
+	:global(.check) {
 		width: 15px;
 		height: 15px;
 		fill: none;
@@ -1236,7 +1231,7 @@
 		padding: 1.5px 5px;
 		border-radius: 5px;
 		background: var(--hover);
-		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.88em;
 	}
 	.msg-text.md :global(pre) {
@@ -1300,7 +1295,7 @@
 	}
 	.act:hover:not(:disabled) { background: var(--field, #f7f1ec); color: var(--text, #4a3a2e); }
 	.act:disabled { opacity: 0.4; cursor: default; }
-	.act svg {
+	.act :global(svg) {
 		width: 14px;
 		height: 14px;
 		fill: none;
@@ -1310,7 +1305,7 @@
 		stroke-linejoin: round;
 	}
 	.act.tiny { width: 20px; height: 20px; }
-	.act.tiny svg { width: 12px; height: 12px; }
+	.act.tiny :global(svg) { width: 12px; height: 12px; }
 	.variants { display: inline-flex; align-items: center; gap: 1px; margin-left: 2px; }
 	.count { font-size: 11px; color: var(--text-muted, #ac8064); font-variant-numeric: tabular-nums; }
 
@@ -1401,7 +1396,7 @@
 		height: 100%;
 		padding: 4px;
 	}
-	.text-file svg { width: 20px; height: 20px; fill: none; stroke: var(--text-soft, #8a6b57); stroke-width: 1.5; }
+	.text-file :global(svg) { width: 20px; height: 20px; fill: none; stroke: var(--text-soft, #8a6b57); stroke-width: 1.5; }
 	.text-file span {
 		font-size: 8px;
 		color: var(--text-soft, #8a6b57);
@@ -1429,7 +1424,7 @@
 		transition: opacity 150ms ease-in-out;
 	}
 	.attachment-item:hover .remove-attachment { opacity: 1; }
-	.remove-attachment svg {
+	.remove-attachment :global(svg) {
 		width: 12px;
 		height: 12px;
 		fill: none;
@@ -1486,7 +1481,7 @@
 		transition: background-color 150ms ease-in-out, color 150ms ease-in-out;
 	}
 	.tool:hover { background: var(--hover); }
-	.tool svg {
+	.tool :global(svg) {
 		width: 17px;
 		height: 17px;
 		fill: none;
@@ -1536,7 +1531,7 @@
 		cursor: pointer;
 	}
 	.back:hover { background: var(--field, #f7f1ec); }
-	.back svg {
+	.back :global(svg) {
 		width: 16px;
 		height: 16px;
 		fill: none;
@@ -1566,7 +1561,7 @@
 	}
 	.pill:hover { background: var(--field-strong, var(--field)); border-color: var(--border-strong); }
 	.pill span:not(.badge) { flex: 1; min-width: 0; }
-	.pill svg {
+	.pill :global(svg) {
 		width: 16px;
 		height: 16px;
 		flex: 0 0 auto;
@@ -1658,7 +1653,7 @@
 	.kebab:focus-visible,
 	.recent .kebab[aria-expanded='true'] { opacity: 1; }
 	.kebab:hover { background: var(--hover); color: var(--text, #4a3a2e); }
-	.kebab svg { width: 15px; height: 15px; fill: currentColor; stroke: currentColor; stroke-width: 0.5; }
+	.kebab :global(svg) { width: 15px; height: 15px; fill: currentColor; stroke: currentColor; stroke-width: 0.5; }
 	.row-menu { top: calc(100% - 4px); left: auto; right: 6px; min-width: 150px; }
 	.rename-input {
 		flex: 1;

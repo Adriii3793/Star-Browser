@@ -6,7 +6,7 @@ export interface SitePermissions {
 
 const STORAGE_KEY = 'star.sitePermissions';
 
-export function loadSitePermissions(): SitePermissions {
+function loadSitePermissions(): SitePermissions {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : null;
@@ -40,5 +40,11 @@ export function saveDecision(origin: string, kind: string, decision: PermissionD
     const all = loadSitePermissions();
     all[origin] = { ...all[origin], [kind]: decision };
     persist(all);
+}
+
+export function clearSitePermissions() {
+    try {
+        localStorage.removeItem(STORAGE_KEY);
+    } catch {}
 }
 

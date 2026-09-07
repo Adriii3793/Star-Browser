@@ -1,18 +1,20 @@
 <script lang="ts">
     import { prefs } from '$lib/stores/prefs.svelte';
     import { emit } from '@tauri-apps/api/event';
+    import { Image as ImageIcon, Check } from '@lucide/svelte';
     import {
         PRESET_THEMES,
         SYSTEM_THEME,
         theme,
         applyThemeVars,
-        luminance,
-        mix
+        surfaceFor
     } from '$lib/stores/theme.svelte';
     import type { Theme } from '$lib/stores/theme.svelte';
     import { SEARCH_ENGINES } from '$lib/stores/setup.svelte';
     import { AI_PROVIDERS } from '$lib/stores/prefs.svelte';
     import CloseButton from '../ui/CloseButton.svelte';
+    import type { AiKeyStatus } from '$lib/services/ai';
+    import { detectOs, type OS } from '$lib/services/platform';
     let {
         onclose,
         themeId = theme.preference,
@@ -20,7 +22,8 @@
         background = null,
         customBg = null,
         customSurface = null,
-        customAccent = null
+        customAccent = null,
+        aiKey = null
     }: {
         onclose: () => void;
         themeId?: string;
@@ -29,21 +32,81 @@
         customBg?: string | null;
         customSurface?: string | null;
         customAccent?: string | null;
+        aiKey?: AiKeyStatus | null;
     } = $props();
+
+    let keyDraft = $state('');
+    let keyEditing = $state(false);
+    let keySummary = $derived(
+        aiKey?.source === 'user'
+            ? `Using your key ${aiKey.hint ?? ''}`
+            : aiKey?.source === 'none'
+              ? 'No key set — the assistant cannot answer'
+              : 'A key is already set up'
+    );
+
+    const WIPE_COMMANDS: { os: OS; label: string; shell: string; command: string }[] = [
+        {
+            os: 'linux',
+            label: 'Linux',
+            shell: 'Terminal',
+            command:
+                'rm -rf ~/.local/share/com.studio.star ~/.config/com.studio.star ~/.cache/com.studio.star'
+        },
+        {
+            os: 'macos',
+            label: 'macOS',
+            shell: 'Terminal',
+            command:
+                'rm -rf ~/Library/Application\\ Support/com.studio.star ~/Library/Caches/com.studio.star ~/Library/WebKit/com.studio.star'
+        },
+        {
+            os: 'windows',
+            label: 'Windows',
+            shell: 'PowerShell',
+            command:
+                'Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$env:APPDATA\\com.studio.star", "$env:LOCALAPPDATA\\com.studio.star"'
+        }
+    ];
+
+    const thisOs = detectOs();
+    let copied = $state<string | null>(null);
+
+    async function copyCommand(os: string, node: HTMLElement) {
+        try {
+            await navigator.clipboard.writeText(node.textContent ?? '');
+            copied = os;
+            setTimeout(() => { if (copied === os) copied = null; }, 1600);
+        } catch {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+        }
+    }
+
+    function saveKey() {
+        void emit('settings-changed', { aiApiKey: keyDraft.trim() });
+        keyDraft = '';
+        keyEditing = false;
+    }
+
+    function removeKey() {
+        void emit('settings-changed', { aiApiKey: '' });
+        keyDraft = '';
+        keyEditing = false;
+    }
 
     const DEFAULT_CUSTOM_BG = '#faf7f7';
     const DEFAULT_CUSTOM_ACCENT = '#80a4d4';
     const HEX = /^#[0-9a-fA-F]{6}$/;
 
-    function surfaceFor(bg: string): string {
-        return mix(bg, '#ffffff', luminance(bg) < 0.5 ? 0.07 : 0.6);
-    }
-
     let customOverride = $state<{ bg: string; surface: string; accent: string } | null>(null);
     let custom = $derived(
         customOverride ?? {
             bg: customBg ?? DEFAULT_CUSTOM_BG,
-            surface: customSurface ?? surfaceFor(customBg ?? DEFAULT_CUSTOM_BG),
+            surface: surfaceFor(customBg ?? DEFAULT_CUSTOM_BG),
             accent: customAccent ?? DEFAULT_CUSTOM_ACCENT
         }
     );
@@ -310,7 +373,7 @@
                     {#if wallpaper}
                         <img src={wallpaper} alt="" />
                     {:else}
-                        <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z" /><path d="M4 15l4.5-4.5 3.5 3.5 3-3L20 16" /><circle cx="9" cy="9" r="1.4" /></svg>
+                        <ImageIcon aria-hidden="true" />
                     {/if}
                 </div>
                 <div class="wallpaper-text">
@@ -346,7 +409,7 @@
                         <img class="engine-logo" src={engine.logo} alt="" />
                         <span>{engine.name}</span>
                         {#if selectedSearchEngine === engine.id}
-                            <svg class="engine-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 7" /></svg>
+                            <Check class="engine-check" aria-hidden="true" />
                         {/if}
                     </button>
                 {/each}
@@ -355,6 +418,38 @@
 
         <section>
             <h3>Assistant</h3>
+
+            <p class="hint">Add your OpenRouter API key to use the assistant with your own account.</p>
+            <div class="keyrow">
+                <span class="keystate" class:missing={aiKey?.source === 'none'}>{keySummary}</span>
+                {#if !keyEditing}
+                    <button class="keybtn" type="button" onclick={() => (keyEditing = true)}>
+                        {aiKey?.source === 'user' ? 'Replace' : 'Add key'}
+                    </button>
+                    {#if aiKey?.source === 'user'}
+                        <button class="keybtn" type="button" onclick={removeKey}>Remove</button>
+                    {/if}
+                {/if}
+            </div>
+            {#if keyEditing}
+                <div class="keyrow">
+                    <input
+                        class="keyinput"
+                        type="password"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="sk-or-…"
+                        bind:value={keyDraft}
+                        onkeydown={(e) => {
+                            if (e.key === 'Enter') saveKey();
+                            else if (e.key === 'Escape') { keyDraft = ''; keyEditing = false; }
+                        }}
+                    />
+                    <button class="keybtn" type="button" disabled={!keyDraft.trim()} onclick={saveKey}>Save</button>
+                    <button class="keybtn" type="button" onclick={() => { keyDraft = ''; keyEditing = false; }}>Cancel</button>
+                </div>
+            {/if}
+
             <p class="hint">{AI_PROVIDERS.length} AI models are available for Star chat - pick the one to use.</p>
             <div class="assistant-list" role="radiogroup" aria-label="AI provider">
                 {#each AI_PROVIDERS as provider (provider.id)}
@@ -378,7 +473,7 @@
                             {/if}
                         </div>
                         {#if prefs.aiProvider === provider.id}
-                            <svg class="assistant-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 7" /></svg>
+                            <Check class="assistant-check" aria-hidden="true" />
                         {/if}
                     </button>
                 {/each}
@@ -417,6 +512,42 @@
                     onchange={(e) => toggleAdblock(e.currentTarget.checked)}
                 />
             </label>
+        </section>
+
+        <section>
+            <h3>Uninstalling</h3>
+            <p class="hint">
+                Removing Star leaves its data behind. To erase all of it — history, cookies,
+                logins, saved tabs and these settings — close Star, then run the line for your
+                system. It cannot be undone.
+            </p>
+
+            {#each WIPE_COMMANDS as entry (entry.os)}
+                <div class="wipe" class:current={entry.os === thisOs}>
+                    <div class="wipehead">
+                        <span class="wipeos">{entry.label}</span>
+                        <span class="wipeshell">{entry.shell}</span>
+                        {#if entry.os === thisOs}<span class="wipehere">this computer</span>{/if}
+                        <button
+                            class="keybtn"
+                            type="button"
+                            onclick={(e) => {
+                                const code = (e.currentTarget.closest('.wipe') as HTMLElement).querySelector('code');
+                                if (code) void copyCommand(entry.os, code as HTMLElement);
+                            }}
+                        >
+                            {copied === entry.os ? 'Copied' : 'Copy'}
+                        </button>
+                    </div>
+                    <pre class="wipecmd"><code>{entry.command}</code></pre>
+                </div>
+            {/each}
+
+            <p class="hint">
+                This deletes the data only. The app itself goes with whatever installed it — your
+                package manager on Linux, dragging Star to the Bin on macOS, Add or remove programs
+                on Windows.
+            </p>
         </section>
         </div>
     </div>
@@ -692,7 +823,117 @@
         object-fit: contain;
         background: var(--bg-page);
     }
-    .engine-check { width: 15px; height: 15px; margin-left: auto; fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+    :global(.engine-check) { width: 15px; height: 15px; margin-left: auto; fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+
+    .keyrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 10px;
+    }
+
+    .keystate {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-size: 12px;
+        color: var(--text-soft);
+    }
+    .keystate.missing { color: var(--danger, #c0554a); }
+
+    .keyinput {
+        flex: 1 1 auto;
+        min-width: 0;
+        height: 30px;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-page);
+        color: var(--text);
+        font: inherit;
+        font-size: 12px;
+    }
+    .keyinput:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -1px;
+    }
+
+    .keybtn {
+        flex: 0 0 auto;
+        height: 30px;
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-page);
+        color: var(--text);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color .14s ease;
+    }
+    .keybtn:hover:not(:disabled) { background: var(--tab-hover); }
+    .keybtn:disabled { opacity: .45; cursor: default; }
+
+    .wipe {
+        margin: 0 0 10px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-page);
+    }
+    .wipe.current {
+        border-color: var(--accent);
+    }
+
+    .wipehead {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .wipeos {
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .wipeshell,
+    .wipehere {
+        font-size: 11px;
+        color: var(--text-soft);
+    }
+    .wipehere {
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        color: var(--text);
+        font-weight: 600;
+    }
+    .wipehead .keybtn {
+        margin-left: auto;
+        height: 26px;
+        padding: 0 10px;
+    }
+
+    .wipecmd {
+        margin: 0;
+        padding: 9px 10px;
+        border-radius: 8px;
+        background: var(--field, #f7f1ec);
+        overflow-x: auto;
+    }
+    .wipecmd code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11.5px;
+        line-height: 1.5;
+        color: var(--text);
+        white-space: pre;
+        user-select: text;
+        -webkit-user-select: text;
+    }
 
     .assistant-list {
         display: grid;
@@ -741,7 +982,7 @@
         opacity: .85;
     }
 
-    .assistant-check {
+    :global(.assistant-check) {
         flex: 0 0 auto;
         width: 16px;
         height: 16px;
@@ -776,7 +1017,7 @@
         color: var(--text-muted);
     }
     .wallpaper-preview img { width: 100%; height: 100%; object-fit: cover; }
-    .wallpaper-preview svg {
+    .wallpaper-preview :global(svg) {
         width: 18px;
         height: 18px;
         fill: none;

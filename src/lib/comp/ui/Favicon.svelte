@@ -1,23 +1,26 @@
 <script lang="ts">
-    import { faviconSources } from '$lib/services/favicon';
+    import { faviconCandidates, faviconKey, faviconStep, type FaviconProgress } from '$lib/services/favicon';
+    import { Globe } from '@lucide/svelte';
 
     let {
         url,
+        iconUrl = null,
         size = 16
     }: {
         url: string;
+        iconUrl?: string | null;
         size?: number;
     } = $props();
 
-    let sources = $derived(faviconSources(url));
+    let sources = $derived(faviconCandidates(url, iconUrl));
 
-    let attempt = $state<{ url: string; step: number } | null>(null);
-    let step = $derived(attempt?.url === url ? attempt.step : 0);
+    let progress = $state<FaviconProgress | null>(null);
+    let step = $derived(faviconStep(sources, progress));
     let current = $derived(sources[step]);
 
     function failed(src: string) {
         if (src !== current) return;
-        attempt = { url, step: step + 1 };
+        progress = { key: faviconKey(sources), step: step + 1 };
     }
 </script>
 
@@ -25,13 +28,9 @@
     {#if current}
         <img src={current} alt="" onerror={() => failed(current)} />
     {:else}
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M3.6 9h16.8M3.6 15h16.8M11.5 3a17 17 0 0 0 0 18M12.5 3a17 17 0 0 1 0 18" />
-        </svg>
+        <Globe aria-hidden="true" />
     {/if}
 </span>
-
 <style>
     .favicon {
         display: inline-flex;
@@ -47,15 +46,5 @@
         height: 100%;
         border-radius: 4px;
         object-fit: contain;
-    }
-
-    svg {
-        width: 100%;
-        height: 100%;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.75;
-        stroke-linecap: round;
-        opacity: 0.55;
     }
 </style>

@@ -102,15 +102,25 @@
                 type="button"
                 class="clear"
                 onclick={clearEverything}
-                disabled={history.entries.length === 0}
+                disabled={history.entries.length === 0 || history.loading}
             >
                 Clear all
             </button>
         </div>
 
         <div class="list">
-            {#if history.entries.length === 0}
-                <p class="empty">No history yet</p>
+            {#if history.error}
+                <div class="state" role="alert">
+                    <p class="state-title">History unavailable</p>
+                    <p class="state-detail">{history.error}</p>
+                    <button type="button" class="retry" onclick={() => history.retry()}>
+                        Try again
+                    </button>
+                </div>
+            {:else if !history.loaded && history.loading}
+                <p class="empty">Loading history…</p>
+            {:else if history.entries.length === 0}
+                <p class="empty">{query.trim() ? `No results for “${query.trim()}”` : 'No history yet'}</p>
             {:else}
                 {#each groups as group (group.label)}
                     <h3 class="day">{group.label}</h3>
@@ -147,10 +157,23 @@
         flex-direction: column;
         width: min(680px, 100%);
         max-height: min(720px, 100%);
-        padding: 20px 8px 12px 24px;
+        padding: 18px;
         background: var(--bg-page);
         border-radius: 14px;
         box-shadow: 0 18px 48px var(--shadow), 0 0 0 1px var(--border);
+        animation: panel-in 160ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+        will-change: transform, opacity;
+    }
+
+    @keyframes panel-in {
+        from {
+            opacity: 0;
+            transform: translateY(8px) scale(0.985);
+        }
+        to {
+            opacity: 1;
+            transform: none;
+        }
     }
 
     header {
@@ -219,16 +242,82 @@
         flex: 1;
         min-height: 0;
         overflow-y: auto;
+        overscroll-behavior: contain;
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 2px;
+        margin-right: -10px;
+        padding-right: 6px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-strong) transparent;
+    }
+
+    .list::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .list::-webkit-scrollbar-thumb {
+        background: var(--border-strong);
+        border: 2px solid transparent;
+        border-radius: 999px;
+        background-clip: content-box;
+    }
+
+    .list::-webkit-scrollbar-thumb:hover {
+        background: var(--text-muted);
+        background-clip: content-box;
     }
 
     .empty {
-        margin: 24px 0;
+        margin: 32px 0;
         font-size: 13px;
         color: var(--text-muted);
         text-align: center;
+    }
+
+    .state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        margin: 28px 0;
+        padding: 0 16px;
+        text-align: center;
+    }
+
+    .state-title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .state-detail {
+        margin: 0;
+        max-width: 42ch;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--text-muted);
+        overflow-wrap: anywhere;
+    }
+
+    .retry {
+        margin-top: 6px;
+        padding: 7px 16px;
+        border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 12.5px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 120ms ease, border-color 120ms ease;
+    }
+
+    .retry:hover {
+        background: var(--hover);
+        border-color: var(--accent);
     }
 
     .row {
@@ -242,14 +331,27 @@
         font-family: inherit;
         text-align: left;
         cursor: pointer;
+        transition: background-color 110ms ease, color 110ms ease;
     }
 
     .row:hover {
         background: var(--tab-hover);
     }
 
+    .row:active {
+        background: var(--field-strong);
+    }
+
     .row:hover .title {
         color: var(--accent);
+    }
+
+    .row:focus-visible,
+    .clear:focus-visible,
+    .retry:focus-visible,
+    .search input:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
     }
 
     .day {
@@ -298,5 +400,17 @@
         font-size: 11px;
         color: var(--text-muted);
         white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .panel {
+            animation: none;
+        }
+
+        .row,
+        .retry {
+            transition: none;
+        }
     }
 </style>

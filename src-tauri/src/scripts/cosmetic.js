@@ -75,37 +75,70 @@
     return text.length > 0 && text.length < 24 && LABELS.test(text);
   }
 
-  function sweep(root) {
-    var nodes = root.querySelectorAll('span,div,p,h2,h3,h4');
-    for (var i = 0; i < nodes.length && i < 400; i++) {
-      var node = nodes[i];
-      if (!isAdLabel(node)) continue;
-      var box = node.parentElement;
-      if (!box || box === document.body) continue;
-      if (box.getBoundingClientRect().height > 700) continue;
-      box.style.setProperty('display', 'none', 'important');
+  function hideBoxOf(node) {
+    if (!isAdLabel(node)) return;
+    var box = node.parentElement;
+    if (!box || box === document.body) return;
+    if (box.getBoundingClientRect().height > 700) return;
+    box.style.setProperty('display', 'none', 'important');
+  }
+
+  function sweep(roots) {
+    for (var r = 0; r < roots.length; r++) {
+      var root = roots[r];
+      if (root.nodeType === 1) hideBoxOf(root);
+      var nodes;
+      try {
+        nodes = root.querySelectorAll('span,div,p,h2,h3,h4');
+      } catch (e) {
+        continue;
+      }
+      for (var i = 0; i < nodes.length && i < 400; i++) hideBoxOf(nodes[i]);
     }
   }
 
-  var pending = false;
-  function schedule() {
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(function () {
-      pending = false;
+  var SWEEP_MS = 250;
+  var MAX_ROOTS = 32;
+  var timer = null;
+  var queued = [];
+
+  function schedule(roots) {
+    for (var i = 0; i < roots.length && queued.length <= MAX_ROOTS; i++) {
+      queued.push(roots[i]);
+    }
+    if (queued.length > MAX_ROOTS) queued = [document];
+    if (timer !== null) return;
+    timer = setTimeout(function () {
+      timer = null;
+      var roots = queued;
+      queued = [];
       try {
-        sweep(document);
+        sweep(roots);
       } catch (e) {}
-    });
+    }, SWEEP_MS);
+  }
+
+  function sweepAll() {
+    schedule([document]);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', schedule, { once: true });
+    document.addEventListener('DOMContentLoaded', sweepAll, { once: true });
   } else {
-    schedule();
+    sweepAll();
   }
 
-  var observer = new MutationObserver(schedule);
+  var observer = new MutationObserver(function (records) {
+    var roots = [];
+    for (var i = 0; i < records.length; i++) {
+      var added = records[i].addedNodes;
+      for (var j = 0; j < added.length; j++) {
+        if (added[j].nodeType === 1) roots.push(added[j]);
+      }
+    }
+    if (roots.length) schedule(roots);
+  });
+
   function observe() {
     if (document.body) observer.observe(document.body, { childList: true, subtree: true });
   }
@@ -114,5 +147,10 @@
 
   setTimeout(function () {
     observer.disconnect();
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    queued = [];
   }, 20000);
 })();

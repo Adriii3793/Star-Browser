@@ -20,7 +20,7 @@ pub enum AppError {
     #[error("tab not found")]
     WindowNotFound,
 
-    #[error("API key not configured")]
+    #[error("No AI key set - add your OpenRouter API key in Settings")]
     MissingApiKey,
     #[error("daily AI request limit reached")]
     RateLimited,

@@ -1,6 +1,6 @@
 {
   "name": "star",
-  "version": "0.1.0",
+  "version": "1.1.1",
   "description": "Star — a minimalist AI browser built with Tauri and SvelteKit",
   "type": "module",
   "scripts": {
@@ -10,15 +10,16 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
+    "doctor": "node scripts/doctor.mjs",
     "icons": "tauri icon src-tauri/app-icon.png",
-    "icons:round": "node scripts/round-icon.mjs"
+    "icons:round": "node scripts/round-icon.mjs",
+    "test": "node --test \"tests/**/*.test.ts\""
   },
   "license": "MIT",
   "dependencies": {
+    "@lucide/svelte": "^1.37.0",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-os": "^2.3.2",
-    "@tauri-apps/plugin-window-state": "^2.4.1",
     "dompurify": "^3.4.14",
     "marked": "^18.0.7"
   },

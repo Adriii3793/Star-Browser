@@ -51,7 +51,9 @@
         return el;
     }
 
-    function show() { banner(); }
+    var wasOffline = false;
+
+    function show() { wasOffline = true; banner(); }
 
     function hide() {
         var el = document.getElementById(BANNER_ID);
@@ -65,7 +67,22 @@
     window.addEventListener("offline", show);
     window.addEventListener("online", function () {
         hide();
-        location.reload();
+        if (!wasOffline) return;
+        wasOffline = false;
+
+        function reloadSoon() {
+            setTimeout(function () { location.reload(); }, 250 + Math.floor(Math.random() * 2000));
+        }
+
+        if (document.hidden) {
+            document.addEventListener("visibilitychange", function once() {
+                if (document.hidden) return;
+                document.removeEventListener("visibilitychange", once);
+                reloadSoon();
+            });
+        } else {
+            reloadSoon();
+        }
     });
 
     if (document.readyState === "loading") {

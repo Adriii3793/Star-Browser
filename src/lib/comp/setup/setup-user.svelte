@@ -1,5 +1,6 @@
 <script lang="ts">
     import Button3D from '../ui/Button3D.svelte';
+    import { Pencil } from '@lucide/svelte';
     import StepShell from './StepShell.svelte';
     import { setup } from '$lib/stores/setup.svelte';
     import { cropAvatar } from '$lib/services/avatar';
@@ -37,9 +38,7 @@
             title="Change photo"
             onclick={() => fileEl?.click()}
         >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4" />
-            </svg>
+            <Pencil aria-hidden="true" />
         </button>
     </div>
 
@@ -107,7 +106,7 @@
         outline-offset: 3px;
     }
 
-    .upload svg {
+    .upload :global(svg) {
         width: 14px;
         height: 14px;
         fill: none;

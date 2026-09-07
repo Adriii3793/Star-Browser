@@ -1,11 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  AppStream metadata. Software centres (GNOME Software, KDE Discover) read this to show
-  the application's name, developer and description. Without it Discover falls back to the
-  raw package name and renders "Unknown author" with a placeholder icon.
-
-  Installed to /usr/share/metainfo/ by bundle.linux.{rpm,deb}.files in tauri.conf.json.
--->
 <component type="desktop-application">
   <id>com.studio.star</id>
   <launchable type="desktop-id">star.desktop</launchable>
@@ -41,13 +34,39 @@
     <category>WebBrowser</category>
   </categories>
 
-  <url type="homepage">https://github.com/Adriii3793/Project-2k26</url>
-  <url type="bugtracker">https://github.com/Adriii3793/Project-2k26/issues</url>
+  <url type="homepage">https://github.com/Adriii3793/Star-Browser</url>
+  <url type="bugtracker">https://github.com/Adriii3793/Star-Browser/issues</url>
 
   <content_rating type="oars-1.1" />
 
   <releases>
-    <release version="0.1.0" date="2026-08-27">
+    <release version="1.1.1" date="2026-09-07">
+      <description>
+        <p>Layout, theming and security fixes.</p>
+        <ul>
+          <li>The toolbar is no longer covered by the page, and panels open over it instead of splitting the window</li>
+          <li>Every open tab now follows a window resize, not just the one on screen</li>
+          <li>Custom theme colours no longer make the setup unreadable</li>
+          <li>Fixed video flickering while the pointer is over the player</li>
+          <li>Closing Star no longer leaves a page process running</li>
+          <li>A web page can no longer force fullscreen, printing or closing a tab</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0" date="2026-09-04">
+      <description>
+        <p>Stability and interface update.</p>
+        <ul>
+          <li>Fixed a hang caused by reloading a tab that was showing the offline page</li>
+          <li>Fixed the menu crashing when reopened, and stopped panels taking over the window</li>
+          <li>Fixed audio tracking leaking memory on pages with many frames</li>
+          <li>Tabs no longer all reload at once when the network comes back</li>
+          <li>Redrawn the whole interface on the Lucide icon set</li>
+          <li>Keyboard shortcuts outside the window now work</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-08-28">
       <description>
         <p>First public build.</p>
       </description>

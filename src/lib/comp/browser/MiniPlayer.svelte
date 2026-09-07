@@ -3,6 +3,7 @@
     import { onMount } from 'svelte';
     import CloseButton from '../ui/CloseButton.svelte';
     import Favicon from '../ui/Favicon.svelte';
+    import { Music, Pause, Play, Volume2, VolumeX } from '@lucide/svelte';
 
     interface MediaTab {
         id: string;
@@ -13,7 +14,7 @@
     }
 
     let { onclose, ongoto, ontoggle, onmute }: {
-        onclose: () => void;
+        onclose: (reason?: 'backdrop') => void;
         ongoto: (tabId: string) => void;
         ontoggle: (tabId: string) => void;
         onmute: (tabId: string) => void;
@@ -30,9 +31,15 @@
             unlisten.then((off) => off());
         };
     });
+
+    function onkeydown(e: KeyboardEvent) {
+        if (e.key === 'Escape') onclose();
+    }
 </script>
 
-<div class="scrim" role="presentation" onclick={onclose}></div>
+<svelte:window {onkeydown} />
+
+<div class="scrim" role="presentation" onclick={() => onclose('backdrop')}></div>
 
 <section class="panel" aria-label="Media playing in tabs">
     <header>
@@ -50,7 +57,7 @@
                         {#if tab.url}
                             <Favicon url={tab.url} size={18} />
                         {:else}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+                            <Music aria-hidden="true" />
                         {/if}
                     </span>
                     <button class="name" type="button" title="Go to tab" onclick={() => ongoto(tab.id)}>
@@ -58,16 +65,16 @@
                     </button>
                     <button class="ctl" type="button" aria-label={tab.audible ? 'Pause' : 'Play'} onclick={() => ontoggle(tab.id)}>
                         {#if tab.audible}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" /></svg>
+                            <Pause aria-hidden="true" />
                         {:else}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z" /></svg>
+                            <Play aria-hidden="true" />
                         {/if}
                     </button>
                     <button class="ctl" type="button" aria-label={tab.muted ? 'Unmute' : 'Mute'} onclick={() => onmute(tab.id)}>
                         {#if tab.muted}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l4-4v14z" /><path d="M3 3l18 18" /></svg>
+                            <VolumeX aria-hidden="true" />
                         {:else}
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l4-4v14z" /></svg>
+                            <Volume2 aria-hidden="true" />
                         {/if}
                     </button>
                 </li>
@@ -158,7 +165,7 @@
         color: var(--accent);
         overflow: hidden;
     }
-    .icon > svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .icon > :global(svg) { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
     .name {
         min-width: 0;
@@ -192,5 +199,5 @@
         cursor: pointer;
     }
     .ctl:hover { background: var(--field); color: var(--text); }
-    .ctl svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .ctl :global(svg) { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style>

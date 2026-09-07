@@ -118,7 +118,7 @@ class SetupStore {
     }
 
     async save() {
-        await saveSetup($state.snapshot(this.data)).catch(() => {});
+        await saveSetup($state.snapshot(this.data));
     }
 }
 

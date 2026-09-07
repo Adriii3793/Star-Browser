@@ -1,5 +1,7 @@
 <script lang="ts">
     import Button3D from '../ui/Button3D.svelte';
+    import EngineLogo from '../ui/EngineLogo.svelte';
+    import { Contrast, Check, Plus } from '@lucide/svelte';
     import StepShell from './StepShell.svelte';
     import { setup } from '$lib/stores/setup.svelte';
     import {
@@ -7,8 +9,7 @@
         SYSTEM_THEME,
         readableText,
         imageLuminance,
-        luminance,
-        mix,
+        surfaceFor,
         theme as themeStore,
         type Theme
     } from '$lib/stores/theme.svelte';
@@ -80,7 +81,7 @@
     }
 
     function applyCustomColors(bg: string, accent: string) {
-        const surface = mix(bg, '#ffffff', luminance(bg) < 0.5 ? 0.07 : 0.6);
+        const surface = surfaceFor(bg);
         setup.data.customBg = bg;
         setup.data.customSurface = surface;
         setup.data.customAccent = accent;
@@ -105,7 +106,7 @@
     >
         <p class="greet">Good afternoon, {setup.data.name || 'there'}</p>
         <div class="searchbar">
-            <span class="badge" style="background:{engine.color}">{engine.initial}</span>
+            <EngineLogo {engine} size={18} radius={5} />
             <span class="ph">Search {engine.name} or type a URL</span>
         </div>
     </div>
@@ -129,14 +130,9 @@
                 onclick={() => selectTheme(t)}
             >
                 {#if t.id === 'system'}
-                    <svg class="auto-mark" viewBox="0 0 24 24" aria-hidden="true">
-                        <circle cx="12" cy="12" r="7.6" />
-                        <path class="half" d="M12 4.4a7.6 7.6 0 0 1 0 15.2z" />
-                    </svg>
+                    <Contrast class="auto-mark" aria-hidden="true" />
                 {:else if on}
-                    <svg class="tick" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M5 13l4 4L19 7" />
-                    </svg>
+                    <Check class="tick" aria-hidden="true" />
                 {/if}
             </button>
         {/each}
@@ -148,7 +144,7 @@
             aria-label="Upload a background image"
             onclick={() => bgFileEl?.click()}
         >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            <Plus aria-hidden="true" />
         </button>
     </div>
 
@@ -215,18 +211,6 @@
         color: #4a3a2e;
     }
 
-    .badge {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 auto;
-        width: 18px;
-        height: 18px;
-        border-radius: 5px;
-        color: #fff;
-        font-size: 10px;
-        font-weight: 700;
-    }
 
     .ph {
         font-size: 12px;
@@ -276,7 +260,7 @@
         outline-offset: 3px;
     }
 
-    .tick {
+    :global(.tick) {
         width: 17px;
         height: 17px;
         fill: none;
@@ -295,18 +279,18 @@
         color: var(--accent);
     }
 
-    .auto-mark {
+    :global(.auto-mark) {
         width: 22px;
         height: 22px;
     }
 
-    .auto-mark circle {
+    :global(.auto-mark circle) {
         fill: none;
         stroke: currentColor;
         stroke-width: 1.8;
     }
 
-    .auto-mark .half {
+    :global(.auto-mark path) {
         fill: currentColor;
         stroke: none;
     }
@@ -318,7 +302,7 @@
         border-color: var(--border-strong);
     }
 
-    .sw.add svg {
+    .sw.add :global(svg) {
         width: 18px;
         height: 18px;
         fill: none;

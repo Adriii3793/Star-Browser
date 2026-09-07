@@ -61,6 +61,7 @@ class AiStore {
 
     alternatives = $state<Record<number, string[]>>({});
     activeAlt = $state<Record<number, number>>({});
+    #generation = 0;
 
     init() {
         prefs.init();
@@ -120,10 +121,11 @@ class AiStore {
         return cleaned;
     }
 
-    async send(content: string | ContentPart[], page?: PageContext | null) {
+    async send(content: string | ContentPart[], page?: PageContext | null): Promise<boolean> {
         const isEmpty = typeof content === 'string' ? !content.trim() : content.length === 0;
-        if (isEmpty || this.sending) return;
+        if (isEmpty || this.sending) return false;
 
+        const generation = this.#generation;
         this.error = null;
         this.lastMemoryNote = null;
         this.messages = [...this.messages, { role: 'user', content }];
@@ -133,11 +135,15 @@ class AiStore {
             const system = this.#systemMessage(page, contentToText(content));
             const recent = this.messages.slice(-MAX_TURNS);
             const reply = await aiChat(system ? [system,...recent] : recent, prefs.model);
+            if (generation !== this.#generation) return false;
             this.messages = [...this.messages, {role: 'assistant', content: this.#applyDirectives(reply)}];
+            return true;
         } catch (e) {
+            if (generation !== this.#generation) return false;
             this.error = String(e).replace(/^Error:\s*/, '');
+            return false;
         } finally {
-            this.sending = false;
+            if (generation === this.#generation) this.sending = false;
         }
     }
 
@@ -145,6 +151,7 @@ class AiStore {
         const target = this.messages[index];
         if (this.sending || target?.role !== 'assistant') return;
 
+        const generation = this.#generation;
         this.error = null;
         this.lastMemoryNote = null;
         this.sending = true;
@@ -154,6 +161,7 @@ class AiStore {
             const system = this.#systemMessage(page, lastUser ? contentToText(lastUser.content) : '');
             const history = this.messages.slice(0, index).slice(-MAX_TURNS);
             const reply = await aiChat(system ? [system, ...history] : history, prefs.model);
+            if (generation !== this.#generation) return;
             const cleaned = this.#applyDirectives(reply);
 
             const seen = this.alternatives[index] ?? [contentToText(target.content)];
@@ -163,9 +171,10 @@ class AiStore {
             this.activeAlt = { ...this.activeAlt, [index]: list.length - 1 };
             this.#replaceContent(index, cleaned);
         } catch (e) {
+            if (generation !== this.#generation) return;
             this.error = String(e).replace(/^Error:\s*/, '');
         } finally {
-            this.sending = false;
+            if (generation === this.#generation) this.sending = false;
         }
     }
 
@@ -203,6 +212,8 @@ class AiStore {
     }
 
     reset() {
+        this.#generation += 1;
+        this.sending = false;
         this.messages = [];
         this.error = null;
         this.lastMemoryNote = null;
@@ -211,6 +222,8 @@ class AiStore {
     }
 
     setMessages(msgs: ChatMessage[]) {
+        this.#generation += 1;
+        this.sending = false;
         this.messages = msgs;
         this.alternatives = {};
         this.activeAlt = {};

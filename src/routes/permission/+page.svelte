@@ -1,5 +1,7 @@
 <script lang="ts">
+    import '../../app.css';
     import { onMount } from 'svelte';
+    import { Camera, Mic, MapPin, Bell } from '@lucide/svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { emit, listen } from '@tauri-apps/api/event';
 
@@ -93,27 +95,13 @@
             <div class="row">
                 <span class="kind-icon" aria-hidden="true">
                     {#if request.kind === 'camera'}
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M4 8a2 2 0 0 1 2-2h1.5l1-1.5h7l1 1.5H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
-                            <circle cx="12" cy="12.5" r="3.2" />
-                        </svg>
+                        <Camera />
                     {:else if request.kind === 'microphone'}
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" />
-                            <path d="M6 11v1a6 6 0 0 0 12 0v-1" />
-                            <path d="M12 18v3" />
-                            <path d="M9 21h6" />
-                        </svg>
+                        <Mic />
                     {:else if request.kind === 'geolocation'}
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 21s7-7.5 7-12a7 7 0 0 0-14 0c0 4.5 7 12 7 12z" />
-                            <circle cx="12" cy="9" r="2.3" />
-                        </svg>
+                        <MapPin />
                     {:else if request.kind === 'notifications'}
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M7 8a5 5 0 0 1 10 0c0 5 2 6 2 6H5s2-1 2-6" />
-                            <path d="M10.5 19a1.8 1.8 0 0 0 3 0" />
-                        </svg>
+                        <Bell />
                     {/if}
                 </span>
                 <p class="message"><strong>{siteName}</strong> wants to {LABELS[request.kind] ?? request.kind}. Your choice is remembered for this site.</p>
@@ -136,10 +124,9 @@
         margin: 0;
         padding: 0;
         background: transparent !important;
-        font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto,
-            sans-serif;
+        font-family: var(--font-ui);
     }
-
+    
     .overlay {
         position: fixed;
         inset: 0;
@@ -147,7 +134,7 @@
         align-items: flex-start;
         justify-content: center;
         padding-top: 96px;
-        background: transparent;
+        background: var(--overlay, rgba(74, 58, 46, 0.28));
     }
 
     .card {
@@ -187,7 +174,7 @@
         color: var(--accent, #80a4d4);
     }
 
-    .kind-icon svg {
+    .kind-icon :global(svg) {
         width: 100%;
         height: 100%;
     }

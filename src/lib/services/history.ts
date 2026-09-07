@@ -5,6 +5,10 @@ export function recordVisit(url: string, title: string, query: string | null): P
     return call('record_visit',{url, title, query});
 }
 
+export function retitleVisit(url: string, title: string): Promise<void> {
+    return call('retitle_visit', {url, title});
+}
+
 export function recentHistory(limit=20): Promise<HistoryEntry[]> {
     return call('recent_history', {limit});
 
@@ -16,4 +20,8 @@ export function searchHistory(term: string, limit = 20): Promise<HistoryEntry[]>
 
 export function clearHistory(): Promise<void> {
     return call('clear_history');
+}
+
+export function historyWriteError(): Promise<string | null> {
+    return call('history_write_error');
 }

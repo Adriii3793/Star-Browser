@@ -10,12 +10,20 @@
     let { oncomplete }: { oncomplete: () => void } = $props();
 
     let saving = $state(false);
+    let saveError = $state<string | null>(null);
 
     async function finish() {
+        if (saving) return;
         saving = true;
-        await setup.save();
-        saving = false;
-        oncomplete();
+        saveError = null;
+        try {
+            await setup.save();
+            oncomplete();
+        } catch {
+            saveError = 'Could not save your setup. Check that Star can write to its data folder, then try again.';
+        } finally {
+            saving = false;
+        }
     }
 
     function handleEnter(e: KeyboardEvent) {
@@ -46,12 +54,23 @@
                 <SetupStyle onnext={() => setup.next()} />
             {:else if setup.step === 'review'}
                 <Review onfinish={finish} busy={saving} />
+                {#if saveError}
+                    <p class="save-error" role="alert">{saveError}</p>
+                {/if}
             {/if}
         </div>
     {/key}
 </div>
 
 <style>
+    .save-error {
+        max-width: 640px;
+        margin: 12px auto 0;
+        color: var(--danger, #b42318);
+        text-align: center;
+        font-size: 13px;
+    }
+
     .stage {
         display: flex;
         align-items: center;

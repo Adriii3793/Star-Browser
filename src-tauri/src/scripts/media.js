@@ -4,14 +4,15 @@
     var AUDIO_PREFIX = '@@star-audio@@:';
     var CHANNEL = '__star_media__';
     var SWEEP_MS = 1000;
+    var IDLE_SWEEP_MS = 5000;
 
     var SITE_CONTROLS = [
-        '[data-testid="control-button-playpause"]', // Spotify
+        '[data-testid="control-button-playpause"]',
         '[data-testid="play-pause-button"]',
-        '.ytp-play-button', // YouTube
-        'tp-yt-paper-icon-button.play-pause-button', // YouTube Music
-        '.playControl', // SoundCloud
-        'button.playback-play', // Apple Music
+        '.ytp-play-button',
+        'tp-yt-paper-icon-button.play-pause-button',
+        '.playControl', 
+        'button.playback-play',
         '.player-controls__buttons button[aria-label*="lay"]'
     ];
     var GENERIC_CONTROLS = [
@@ -23,30 +24,50 @@
 
     var muted = false;
     var localAudible = false;
-    var frames = []; // [{ src: Window, audible: boolean }] — top frame only
-    var seen = []; // media elements we have already tracked
+    var frames = [];
+    var FRAME_LIMIT = 64;
+    var seen = [];
     var lastSignal = null;
 
-    var titleGen = 0;
-    var titleBefore = null;
-
     function signalViaTitle(signal) {
-        if (titleBefore === null) titleBefore = document.title;
-        var gen = ++titleGen;
-        document.title = signal;
-        setTimeout(function () {
-            if (gen !== titleGen) return;
-            var original = titleBefore;
-            titleBefore = null;
-            document.title = original;
-        }, 0);
+        var host = window.__starTitleSignal;
+        if (!host) {
+            host = window.__starTitleSignal = {
+                gen: 0,
+                original: null,
+                send: function (text) {
+                    if (this.original === null) this.original = document.title;
+                    var self = this;
+                    var mine = ++this.gen;
+                    document.title = text;
+                    setTimeout(function () {
+                        if (mine !== self.gen) return;
+                        var restore = self.original;
+                        self.original = null;
+                        document.title = restore;
+                    }, 0);
+                }
+            };
+        }
+        host.send(signal);
+    }
+
+    var hasWeakRef = typeof WeakRef === 'function';
+
+    function frameRef(win) {
+        return hasWeakRef ? new WeakRef(win) : { deref: function () { return win; } };
     }
 
     function anyFrameAudible() {
-        for (var i = 0; i < frames.length; i++) {
-            if (frames[i].audible) return true;
+        var audible = false;
+        for (var i = frames.length - 1; i >= 0; i--) {
+            if (frames[i].ref.deref() === undefined) {
+                frames.splice(i, 1);
+                continue;
+            }
+            if (frames[i].audible) audible = true;
         }
-        return false;
+        return audible;
     }
 
     function publish() {
@@ -121,7 +142,32 @@
         );
     }
 
-    setInterval(sweep, SWEEP_MS);
+    var sweepTimer = null;
+
+    function nextSweepDelay() {
+        if (document.hidden) return IDLE_SWEEP_MS;
+        return seen.length ? SWEEP_MS : IDLE_SWEEP_MS;
+    }
+
+    function scheduleSweep() {
+        if (sweepTimer !== null) clearTimeout(sweepTimer);
+        sweepTimer = setTimeout(function () {
+            sweepTimer = null;
+            sweep();
+            scheduleSweep();
+        }, nextSweepDelay());
+    }
+
+    scheduleSweep();
+    document.addEventListener('visibilitychange', scheduleSweep);
+    window.addEventListener('pagehide', function () {
+        if (sweepTimer !== null) {
+            clearTimeout(sweepTimer);
+            sweepTimer = null;
+        }
+    });
+    window.addEventListener('pageshow', scheduleSweep);
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', sweep, { once: true });
     } else {
@@ -177,7 +223,7 @@
                 seen[i].muted = muted;
             } catch (err) {}
         }
-        lastSignal = null; // force the mute flag out even if audibility did not change
+        lastSignal = null;
         publish();
         broadcast('mute', muted);
     }
@@ -254,14 +300,20 @@
         if (!data || data.channel !== CHANNEL) return;
 
         if (typeof data.audible === 'boolean') {
-            for (var i = 0; i < frames.length; i++) {
-                if (frames[i].src === event.source) {
+            for (var i = frames.length - 1; i >= 0; i--) {
+                var live = frames[i].ref.deref();
+                if (live === undefined) {
+                    frames.splice(i, 1);
+                    continue;
+                }
+                if (live === event.source) {
                     frames[i].audible = data.audible;
                     publish();
                     return;
                 }
             }
-            frames.push({ src: event.source, audible: data.audible });
+            if (frames.length >= FRAME_LIMIT) frames.shift();
+            frames.push({ ref: frameRef(event.source), audible: data.audible });
             publish();
             return;
         }

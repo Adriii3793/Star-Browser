@@ -43,6 +43,7 @@ export function closeTabWebview(tabId: string): Promise<void> {
 export interface TabUrlChanged {
     tabId: string;
     url: string;
+    replaced?: boolean;
 }
 
 export function onTabUrlChanged(
@@ -96,24 +97,43 @@ export function onDownloadFinished(
     return listen<DownloadFinished>('download-finished', (event) => handler(event.payload));
 }
 
-export function openMenuWebview(rect: DOMRect): Promise<void> {
-    return call('open_menu_webview', {...bounds(rect)});
+export function openMenuWebview(): Promise<void> {
+    return call('open_menu_webview', {});
 }
 
 export function closeMenuWebview(): Promise<void> {
     return call('close_menu_webview', {});
 }
 
-export function openOverlayWebview(rect: DOMRect): Promise<void> {
-    return call('open_overlay_webview', {...bounds(rect)});
+export function warmMenuWebview(): Promise<void> {
+    return call('warm_menu_webview', {});
 }
 
-export function warmOverlayWebview(rect: DOMRect): Promise<void> {
-    return call('warm_overlay_webview', {...bounds(rect)});
+export function openOverlayWebview(): Promise<void> {
+    return call('open_overlay_webview', {});
+}
+
+export function warmOverlayWebview(): Promise<void> {
+    return call('warm_overlay_webview', {});
 }
 
 export function closeOverlayWebview(): Promise<void> {
     return call('close_overlay_webview', {});
+}
+
+export interface SurfaceClipPart {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    radius: number;
+}
+
+export function setSurfaceClip(
+    surface: 'menu' | 'overlay',
+    parts: SurfaceClipPart[]
+): Promise<void> {
+    return call('set_surface_clip', { surface, parts });
 }
 
 export function tabBack(tabId: string): Promise<void> {
@@ -147,6 +167,25 @@ export function tabStopMedia(tabId: string): Promise<void> {
 
 export function setAdblockEnabled(enabled: boolean): Promise<void> {
     return call('set_adblock', {enabled});
+}
+
+export interface TabIconChanged {
+    tabId: string;
+    url: string;
+}
+
+export function onTabLoadChanged(
+    handler: (event: { tabId: string; loading: boolean }) => void
+): Promise<UnlistenFn> {
+    return listen<{ tabId: string; loading: boolean }>('tab-load-changed', (event) =>
+        handler(event.payload)
+    );
+}
+
+export function onTabIconChanged(
+    handler: (change: TabIconChanged) => void
+): Promise<UnlistenFn> {
+    return listen<TabIconChanged>('tab-icon-changed', (event) => handler(event.payload));
 }
 
 export interface TabAudioChanged {
