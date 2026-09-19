@@ -57,6 +57,32 @@
 	let editDraft = $state('');
 
 	const activeProvider = $derived<AiProvider>(prefs.provider);
+	const visionProvider = AI_PROVIDERS.find((p) => p.vision);
+
+	function imagesBlockedMessage(): string {
+		const alt = visionProvider ? ` To attach a photo, use ${visionProvider.name}.` : '';
+		return `${activeProvider.name} can't view photos.${alt}`;
+	}
+
+	// Highlights the "no photos" notice when the user tries to add a photo anyway.
+	let photoNoticeFlash = $state(false);
+	let photoNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+	function flashPhotoNotice() {
+		photoNoticeFlash = false;
+		clearTimeout(photoNoticeTimer);
+		requestAnimationFrame(() => (photoNoticeFlash = true));
+		photoNoticeTimer = setTimeout(() => (photoNoticeFlash = false), 1600);
+	}
+
+	// Switching to a text-only model (here or in Settings) drops any photos already attached.
+	$effect(() => {
+		if (activeProvider.vision) return;
+		const kept = untrack(() => attachments).filter((a) => a.type !== 'image');
+		if (kept.length !== untrack(() => attachments).length) {
+			attachments = kept;
+			showToast(`Photos removed. ${imagesBlockedMessage()}`);
+		}
+	});
 	const isMac = $derived(
 		typeof navigator !== 'undefined' && /mac/i.test(navigator.platform ?? navigator.userAgent)
 	);
@@ -449,6 +475,10 @@
 		const isVideo = file.type.startsWith('video/');
 		const isText = file.type.startsWith('text/') || file.type === 'application/json';
 		if (!isImage && !isVideo && !isText) return;
+		if (isImage && !prefs.provider.vision) {
+			flashPhotoNotice();
+			return;
+		}
 
 		const reader = new FileReader();
 		const generation = attachmentGeneration;
@@ -604,6 +634,9 @@
 							>
 								<span class="menu-text">
 									<span class="menu-title">{p.name}</span>
+									<span class="menu-caps" class:no-photos={!p.vision}>
+										{p.vision ? 'Photos supported' : 'Text only · no photos'}
+									</span>
 									<span class="menu-hint">{p.disclosure}</span>
 								</span>
 								{#if p.id === prefs.aiProvider}
@@ -782,8 +815,26 @@
 		</div>
 	{/if}
 
+	{#if !activeProvider.vision}
+		<div class="photo-notice" class:flash={photoNoticeFlash} role="status">
+			<span>
+				{activeProvider.name} can't view photos.
+				{#if visionProvider}To attach a photo, use a model that supports them, like {visionProvider.name}.{/if}
+			</span>
+			{#if visionProvider}
+				<button type="button" onclick={() => pickProvider(visionProvider)}>Use {visionProvider.name}</button>
+			{/if}
+		</div>
+	{/if}
+
 	<div class="composer" class:drag-over={dragActive}>
-		<button class="tool" type="button" aria-label="Attach file" title="Attach file" onclick={() => fileInputEl?.click()}>
+		<button
+			class="tool"
+			type="button"
+			aria-label="Attach file"
+			title={activeProvider.vision ? 'Attach file' : `Attach file (no photos with ${activeProvider.name})`}
+			onclick={() => fileInputEl?.click()}
+		>
 			<Plus aria-hidden="true" />
 		</button>
 
@@ -806,7 +857,7 @@
 	<input
 		type="file"
 		multiple
-		accept="image/*,video/*,.txt,.json"
+		accept={activeProvider.vision ? 'image/*,video/*,.txt,.json' : 'video/*,.txt,.json'}
 		bind:this={fileInputEl}
 		onchange={handleFileSelect}
 		style="display: none"
@@ -1128,6 +1179,48 @@
 	.menu-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 	.menu-title { font-weight: 500; }
 	.menu-hint { font-size: 11px; color: var(--text-muted, #ac8064); }
+	.menu-caps { font-size: 11px; font-weight: 600; color: var(--accent, #80a4d4); }
+	.menu-caps.no-photos { color: var(--text-muted, #ac8064); }
+
+	.photo-notice {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 10px 10px 0;
+		padding: 7px 10px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: var(--field);
+		font-size: 11.5px;
+		line-height: 1.35;
+		color: var(--text-muted, #ac8064);
+		transition: border-color 0.2s, color 0.2s;
+	}
+	.photo-notice span { flex: 1; min-width: 0; }
+	.photo-notice button {
+		flex-shrink: 0;
+		padding: 4px 9px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.photo-notice button:hover { border-color: var(--border-strong); }
+	.photo-notice.flash {
+		border-color: #c0392b;
+		color: #c0392b;
+		animation: photo-shake 0.35s;
+	}
+	@keyframes photo-shake {
+		25% { transform: translateX(-3px); }
+		75% { transform: translateX(3px); }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.photo-notice.flash { animation: none; }
+	}
 	:global(.check) {
 		width: 15px;
 		height: 15px;

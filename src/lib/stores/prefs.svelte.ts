@@ -1,6 +1,6 @@
 const STORAGE_KEY = 'star.home.prefs';
 
-export type AiProviderId = 'nemotron' | 'gemma';
+export type AiProviderId = 'deepseek' | 'gemini' | 'llama';
 
 export interface AiProvider {
     id: AiProviderId;
@@ -9,28 +9,41 @@ export interface AiProvider {
     vendor: string;
     modalities: string;
     disclosure: string;
+    /** Whether the model accepts image_url parts. Text-only models get images stripped before sending. */
+    vision: boolean;
 }
 
 export const AI_PROVIDERS: AiProvider[] = [
     {
-        id: 'nemotron',
-        model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-        name: 'Nemotron 3 Nano Omni',
-        vendor: 'NVIDIA',
-        modalities: 'Text, image, video and audio in — text out',
-        disclosure: 'NVIDIA uses your data to improve their products.'
+        id: 'deepseek',
+        model: 'deepseek/deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        vendor: 'DeepSeek',
+        modalities: 'Text in — text out · 1M context',
+        disclosure: 'Requests are routed through OpenRouter to DeepSeek-hosted providers.',
+        vision: false
     },
     {
-        id: 'gemma',
-        model: 'google/gemma-4-26b-a4b-it:free',
-        name: 'Gemma 4',
+        id: 'gemini',
+        model: 'google/gemini-2.5-flash',
+        name: 'Gemini 2.5 Flash',
         vendor: 'Google',
-        modalities: 'Text, image and video in — text out',
-        disclosure: 'Google does not retain your data.'
+        modalities: 'Text, image, audio and video in — text out · 1M context',
+        disclosure: 'Google does not retain your data.',
+        vision: true
+    },
+    {
+        id: 'llama',
+        model: 'meta-llama/llama-3.3-70b-instruct',
+        name: 'Llama 3.3 70B',
+        vendor: 'Meta',
+        modalities: 'Text in — text out · 128K context',
+        disclosure: 'Requests are routed through OpenRouter to third-party Llama providers.',
+        vision: false
     }
 ];
 
-export const DEFAULT_PROVIDER: AiProviderId = 'nemotron';
+export const DEFAULT_PROVIDER: AiProviderId = 'deepseek';
 
 function providerById(id: AiProviderId): AiProvider {
     return AI_PROVIDERS.find((p) => p.id === id) ?? AI_PROVIDERS[0];

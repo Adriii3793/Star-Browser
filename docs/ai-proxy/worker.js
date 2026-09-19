@@ -1,8 +1,9 @@
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 
 const ALLOWED_MODELS = new Set([
-	'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-	'google/gemma-4-26b-a4b-it:free'
+	'deepseek/deepseek-v4-flash',
+	'google/gemini-2.5-flash',
+	'meta-llama/llama-3.3-70b-instruct'
 ]);
 
 const MAX_BODY_BYTES = 128 * 1024;

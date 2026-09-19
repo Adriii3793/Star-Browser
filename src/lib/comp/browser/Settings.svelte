@@ -468,6 +468,7 @@
                         <div class="assistant-main">
                             <span class="assistant-name">{provider.name}</span>
                             <span class="assistant-meta">{provider.vendor} · {provider.modalities}</span>
+                            <span class="assistant-meta">{provider.vision ? 'Photos supported' : "Text only · photos can't be attached"}</span>
                             {#if provider.disclosure}
                                 <span class="assistant-note">{provider.disclosure}</span>
                             {/if}

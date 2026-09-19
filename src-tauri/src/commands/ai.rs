@@ -9,17 +9,39 @@ use crate::state::AppState;
 
 const DAILY_LIMIT: i64 = 50;
 const WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
-const MODELS: &[&str] = &[
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-    "google/gemma-4-26b-a4b-it:free",
-];
-const DEFAULT_MODEL: &str = MODELS[0];
 
-fn resolve_model(requested: Option<&str>) -> &'static str {
+struct Model {
+    id: &'static str,
+    vision: bool,
+}
+
+const MODELS: &[Model] = &[
+    Model { id: "deepseek/deepseek-v4-flash", vision: false },
+    Model { id: "google/gemini-2.5-flash", vision: true },
+    Model { id: "meta-llama/llama-3.3-70b-instruct", vision: false },
+];
+const DEFAULT_MODEL: &Model = &MODELS[0];
+
+fn resolve_model(requested: Option<&str>) -> &'static Model {
     requested
         .map(str::trim)
-        .and_then(|name| MODELS.iter().find(|known| **known == name).copied())
+        .and_then(|name| MODELS.iter().find(|known| known.id == name))
         .unwrap_or(DEFAULT_MODEL)
+}
+
+/// Text-only models reject `image_url` parts; replace them with a short note instead of failing the request.
+fn strip_images(messages: &mut [ChatMessage]) {
+    for message in messages {
+        let Value::Array(parts) = &mut message.content else { continue };
+        let before = parts.len();
+        parts.retain(|p| p.get("type").and_then(Value::as_str) != Some("image_url"));
+        if parts.len() != before {
+            parts.push(serde_json::json!({
+                "type": "text",
+                "text": "[image omitted: the selected model cannot view images]"
+            }));
+        }
+    }
 }
 
 const AI_TIMEOUT: Duration = Duration::from_secs(90);
@@ -231,8 +253,13 @@ pub async fn ai_chat(
 
     let route = route(&state.db).await?;
 
+    let model = resolve_model(model.as_deref());
+    let mut messages = messages;
+    if !model.vision {
+        strip_images(&mut messages);
+    }
     let body = ChatRequest {
-        model: resolve_model(model.as_deref()),
+        model: model.id,
         messages,
     };
 
@@ -245,6 +272,8 @@ pub async fn ai_chat(
 
     let response = request
         .header("Content-Type", "application/json")
+        .header("HTTP-Referer", "https://github.com/Adriii3793/Star-Browser")
+        .header("X-Title", "Star Browser")
         .json(&body)
         .send()
         .await
@@ -272,6 +301,9 @@ pub async fn ai_chat(
         .next()
         .map(|choice| content_to_text(&choice.message.content))
         .ok_or(AppError::AiRequest)?;
+    if reply.trim().is_empty() {
+        return Err(AppError::AiFailed(format!("{} returned an empty reply. Try again.", model.id)));
+    }
 
     let now = now_millis();
     sqlx::query("INSERT INTO usage_log (used_at) VALUES (?1)")
