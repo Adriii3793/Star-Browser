@@ -1,4 +1,6 @@
 import { fetchPageContext, readTabPage } from '$lib/services/ai';
+import { showsPage } from '$lib/services/pageUrl';
+import { escapeAttr, fenceText } from '$lib/services/prompt';
 
 export interface ReadPage {
     url: string;
@@ -50,6 +52,9 @@ class ReadingStore {
         this.#pending.add(url);
         try {
             let page = tabId ? await readTabPage(tabId).catch(() => null) : null;
+            // Called once the tab finishes loading; still refuse a document that isn't this URL,
+            // or the previous page's text would be filed under the new address.
+            if (page && !showsPage(page.url, url)) page = null;
             if (!page?.text?.trim()) {
                 if (!this.#wanted) return;
                 page = await fetchPageContext(url);
@@ -76,7 +81,7 @@ class ReadingStore {
         const body = items
             .map(
                 (p) =>
-                    `<page_content url="${p.url}" title="${p.title.replaceAll('"', "'")}">\n${p.text}\n</page_content>`
+                    `<page_content url="${escapeAttr(p.url)}" title="${escapeAttr(p.title)}">\n${fenceText(p.text)}\n</page_content>`
             )
             .join('\n');
         return (

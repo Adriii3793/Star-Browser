@@ -1088,7 +1088,10 @@
             const tab = tabs.find((t) => t.id === tabId);
             if (!tab) return;
             pointTabAt(tab, url);
-            void reading.capture(url, tabId);
+            // In-page (history API) navigations never fire a load event, so also capture shortly after.
+            setTimeout(() => {
+                if (!loadingTabs.has(tabId) && tab.url === url) void reading.capture(url, tabId);
+            }, 1500);
 
             if (replaced) {
                 if (tab.cursor >= 0) tab.hist[tab.cursor] = url;
@@ -1142,6 +1145,9 @@
             }
             loadingTabs.delete(tabId);
             navigatingSince.delete(tabId);
+            // Capture once the document has loaded: the URL event fires when navigation starts.
+            const loaded = tabs.find((t) => t.id === tabId);
+            if (loaded?.url) void reading.capture(loaded.url, tabId);
             const visit = pendingVisits.get(tabId);
             if (visit) {
                 clearTimeout(visit.timer);

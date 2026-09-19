@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 const MAX_BYTES: usize = 2 * 1024 * 1024;
-const MAX_TEXT_CHARS: usize = 16_000;
+const MAX_TEXT_CHARS: usize = 30_000;
 const MAX_IMAGES: usize = 12;
 
 #[derive(Serialize, Deserialize)]
@@ -16,6 +16,9 @@ pub struct PageContext {
     pub images: Vec<String>,
     pub videos: Vec<String>,
     pub truncated: bool,
+    /// Live reads only: the document had not finished loading yet.
+    #[serde(default)]
+    pub loading: bool,
 }
 
 fn client() -> Result<&'static reqwest::Client, AppError> {
@@ -86,6 +89,7 @@ pub async fn fetch_page_context(url: String) -> Result<PageContext, AppError> {
         images,
         videos,
         truncated,
+        loading: false,
     })
 }
 

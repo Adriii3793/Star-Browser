@@ -1270,8 +1270,12 @@ const SHORTCUT_FORWARD_SCRIPT: &str = r#"(function () {
 const EXTRACT_PAGE_SCRIPT: &str = r#"(function () {
   try {
     var body = document.body;
-    if (!body) return null;
-    var text = (body.innerText || body.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!body || document.readyState === 'loading') return null;
+    var text = (body.innerText || body.textContent || '')
+      .replace(/[ \t\f\v ]+/g, ' ')
+      .replace(/ *\n[\s]*\n\s*/g, '\n\n')
+      .replace(/ *\n */g, '\n')
+      .trim();
     var images = [];
     var imgs = document.querySelectorAll('img[src]');
     for (var i = 0; i < imgs.length && images.length < 12; i++) {
@@ -1283,10 +1287,15 @@ const EXTRACT_PAGE_SCRIPT: &str = r#"(function () {
     for (var j = 0; j < vids.length && videos.length < 6; j++) {
       if (vids[j].src) videos.push(vids[j].src);
     }
-    var MAX = 16000;
+    var MAX = 30000;
+    // The shell briefly swaps document.title to pass signals; report the page's own title.
+    var signal = window.__starTitleSignal;
+    var title = signal && signal.original !== null ? signal.original : document.title;
+    if (!title || title.indexOf('@@star-') === 0) title = '';
     return {
       url: location.href,
-      title: document.title || '',
+      title: title,
+      loading: document.readyState !== 'complete',
       text: text.slice(0, MAX),
       images: images,
       videos: videos,

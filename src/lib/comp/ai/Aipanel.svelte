@@ -4,7 +4,7 @@
 	import Loading from '../ui/Loading.svelte';
 	import { AlignLeft, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, EllipsisVertical, File as FileIcon, Pencil, Plus, RefreshCw, Send, Sparkle, Trash2, X } from '@lucide/svelte';
 	import { memory } from '$lib/stores/memory.svelte';
-	import { fetchPageContext, readTabPage, saveTextFile } from '$lib/services/ai';
+	import { readCurrentPage, saveTextFile, type PageContext } from '$lib/services/ai';
 	import { renderMarkdown } from '$lib/services/markdown';
 	import { prefs, AI_PROVIDERS, type AiProvider } from '$lib/stores/prefs.svelte';
 	import { cubicOut } from 'svelte/easing';
@@ -371,32 +371,11 @@
 		}
 	}
 
-	let cachedPage: { url: string; data: any } | null = null;
-
-	async function currentPage() {
+	// Read fresh on every message: pages change after load (search results, feeds, SPAs), and a
+	// read taken mid-navigation must not stick to the new URL.
+	async function currentPage(): Promise<PageContext | null> {
 		if (!pageUrl) return null;
-		if (cachedPage?.url === pageUrl) return cachedPage.data;
-
-		if (tabId) {
-			try {
-				const live = await readTabPage(tabId);
-				if (live?.text?.trim()) {
-					cachedPage = { url: pageUrl, data: live };
-					return live;
-				}
-			} catch (e) {
-				console.warn('read_tab_page unavailable, falling back to fetch:', e);
-			}
-		}
-
-		try {
-			const data = await fetchPageContext(pageUrl);
-			cachedPage = { url: pageUrl, data };
-			return data;
-		} catch (e) {
-			console.error('fetch_page_context failed:', e);
-			return null;
-		}
+		return readCurrentPage(tabId, pageUrl);
 	}
 
 	function lastAssistantText(): string {
@@ -417,7 +396,7 @@
 
 		let sent = false;
 		if (files.length === 0) {
-			sent = await ai.send(text, await currentPage());
+			sent = await ai.send(text, currentPage());
 		} else {
 			const parts: ContentPart[] = [];
 			if (text) parts.push({ type: 'text', text });
@@ -434,13 +413,13 @@
 					parts.push({ type: 'text', text: `[attached video: ${file.name}]` });
 				}
 			}
-			sent = await ai.send(parts, await currentPage());
+			sent = await ai.send(parts, currentPage());
 		}
 		if (sent) saveCurrentChat();
 	}
 
 	async function sendPrompt(prompt: string) {
-		if (await ai.send(prompt, await currentPage())) saveCurrentChat();
+		if (await ai.send(prompt, currentPage())) saveCurrentChat();
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -560,7 +539,7 @@
 	}
 
 	async function retry(index: number) {
-		await ai.regenerate(index, await currentPage());
+		await ai.regenerate(index, currentPage());
 		saveCurrentChat();
 	}
 
@@ -578,7 +557,7 @@
 		const text = editDraft.trim();
 		if (!text) return;
 		cancelEdit();
-		await ai.editAndResend(index, text, await currentPage());
+		await ai.editAndResend(index, text, currentPage());
 		saveCurrentChat();
 	}
 </script>

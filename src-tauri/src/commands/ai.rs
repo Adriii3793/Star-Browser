@@ -64,8 +64,16 @@ fn http_client() -> Result<&'static reqwest::Client, AppError> {
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 enum Route {
-    Direct { key: String },
+    Direct { key: String, source: KeySource },
     Proxy { url: &'static str },
+}
+
+impl Route {
+    /// The daily cap protects shared credit (a key baked into the build, or the proxy);
+    /// someone using their own key pays for their own requests.
+    fn is_shared(&self) -> bool {
+        !matches!(self, Route::Direct { source: KeySource::User | KeySource::Environment, .. })
+    }
 }
 
 const KEY_SETTING: &str = "openrouter_api_key";
@@ -114,8 +122,8 @@ async fn local_key(db: &sqlx::SqlitePool) -> Option<(KeySource, String)> {
 }
 
 async fn route(db: &sqlx::SqlitePool) -> Result<Route, AppError> {
-    if let Some((_, key)) = local_key(db).await {
-        return Ok(Route::Direct { key });
+    if let Some((source, key)) = local_key(db).await {
+        return Ok(Route::Direct { key, source });
     }
     match option_env!("STAR_AI_PROXY") {
         Some(url) if !url.trim().is_empty() => Ok(Route::Proxy { url: url.trim() }),
@@ -246,12 +254,10 @@ pub async fn ai_chat(
     messages: Vec<ChatMessage>,
     model: Option<String>,
 ) -> Result<String, AppError> {
-    let used = requests_in_window(&state).await?;
-    if used >= DAILY_LIMIT {
+    let route = route(&state.db).await?;
+    if route.is_shared() && requests_in_window(&state).await? >= DAILY_LIMIT {
         return Err(AppError::RateLimited);
     }
-
-    let route = route(&state.db).await?;
 
     let model = resolve_model(model.as_deref());
     let mut messages = messages;
@@ -264,7 +270,7 @@ pub async fn ai_chat(
     };
 
     let request = match &route {
-        Route::Direct { key } => http_client()?
+        Route::Direct { key, .. } => http_client()?
             .post(OPENROUTER_URL)
             .header("Authorization", format!("Bearer {key}")),
         Route::Proxy { url } => http_client()?.post(*url),
@@ -317,4 +323,51 @@ pub async fn ai_chat(
         .await?;
 
     Ok(reply)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_or_missing_models_fall_back_to_the_default() {
+        assert_eq!(resolve_model(None).id, DEFAULT_MODEL.id);
+        assert_eq!(resolve_model(Some("nvidia/old-model:free")).id, DEFAULT_MODEL.id);
+        assert_eq!(resolve_model(Some(" google/gemini-2.5-flash ")).id, "google/gemini-2.5-flash");
+    }
+
+    #[test]
+    fn only_gemini_accepts_images() {
+        let vision: Vec<_> = MODELS.iter().filter(|m| m.vision).map(|m| m.id).collect();
+        assert_eq!(vision, ["google/gemini-2.5-flash"]);
+    }
+
+    #[test]
+    fn images_are_replaced_for_text_only_models() {
+        let mut messages = vec![
+            ChatMessage { role: "user".into(), content: Value::String("plain".into()) },
+            ChatMessage {
+                role: "user".into(),
+                content: serde_json::json!([
+                    { "type": "text", "text": "what is this?" },
+                    { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAAA" } }
+                ]),
+            },
+        ];
+        strip_images(&mut messages);
+        assert_eq!(messages[0].content, Value::String("plain".into()));
+        let parts = messages[1].content.as_array().unwrap();
+        assert!(parts.iter().all(|p| p["type"] != "image_url"));
+        assert_eq!(parts[0]["text"], "what is this?");
+        assert_eq!(parts.len(), 2);
+    }
+
+    #[test]
+    fn the_daily_cap_only_guards_shared_credit() {
+        let own = |source| Route::Direct { key: "k".into(), source };
+        assert!(!own(KeySource::User).is_shared());
+        assert!(!own(KeySource::Environment).is_shared());
+        assert!(own(KeySource::Embedded).is_shared());
+        assert!(Route::Proxy { url: "https://proxy.test" }.is_shared());
+    }
 }
